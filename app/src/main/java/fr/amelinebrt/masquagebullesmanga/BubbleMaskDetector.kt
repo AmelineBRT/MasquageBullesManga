@@ -1,5 +1,7 @@
 package fr.amelinebrt.masquagebullesmanga
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -13,9 +15,6 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 
 /**
  * Local YOLO11n balloon segmentation. The ONNX weights are downloaded once and
@@ -30,12 +29,33 @@ internal object BubbleMaskDetector {
 
     data class Result(val bitmap: Bitmap, val bubbleCount: Int, val elapsedMs: Long)
 
+    private interface BoxLike {
+        val left: Float
+        val top: Float
+        val right: Float
+        val bottom: Float
+        val w: Float
+        val h: Float
+    }
+
+    private data class Box(
+        val cx: Float,
+        val cy: Float,
+        override val w: Float,
+        override val h: Float,
+        val score: Float,
+        val index: Int
+    ) : BoxLike {
+        override val left get() = cx - w / 2f
+        override val top get() = cy - h / 2f
+        override val right get() = cx + w / 2f
+        override val bottom get() = cy + h / 2f
+    }
+
     suspend fun run(context: Context, source: Bitmap): Result {
         val started = System.currentTimeMillis()
         val modelFile = File(context.filesDir, "bubble-segmentation-1024.onnx")
-        if (!modelFile.exists() || modelFile.length() < 1_000_000L) {
-            downloadModel(modelFile)
-        }
+        if (!modelFile.exists() || modelFile.length() < 1_000_000L) downloadModel(modelFile)
 
         val width = source.width
         val height = source.height
@@ -66,11 +86,14 @@ internal object BubbleMaskDetector {
         }
 
         val env = OrtEnvironment.getEnvironment()
-        val options = OrtSession.SessionOptions()
+        val options = ai.onnxruntime.OrtSession.SessionOptions()
         options.setIntraOpNumThreads(2)
         options.setInterOpNumThreads(1)
-        val session = env.createSession(modelFile.absolutePath, options)
-        options.close()
+        val session = try {
+            env.createSession(modelFile.absolutePath, options)
+        } finally {
+            options.close()
+        }
 
         val maskGrid = BooleanArray(MODEL_SIZE * MODEL_SIZE)
         var detectedCount = 0
@@ -93,12 +116,6 @@ internal object BubbleMaskDetector {
                         Array(PROTO_SIZE) { y -> rows[y] as FloatArray }
                     }
 
-                    data class Box(val cx: Float, val cy: Float, val w: Float, val h: Float, val score: Float, val index: Int) {
-                        val left get() = cx - w / 2f
-                        val top get() = cy - h / 2f
-                        val right get() = cx + w / 2f
-                        val bottom get() = cy + h / 2f
-                    }
                     val candidates = ArrayList<Box>()
                     val count = feature[4].size
                     for (i in 0 until count) {
@@ -131,9 +148,7 @@ internal object BubbleMaskDetector {
                         for (py in top..bottom) {
                             for (px in left..right) {
                                 var logit = 0f
-                                for (c in 0 until CHANNELS) {
-                                    logit += coeff[c] * protoRows[c][py][px]
-                                }
+                                for (c in 0 until CHANNELS) logit += coeff[c] * protoRows[c][py][px]
                                 val probability = 1f / (1f + exp(-logit))
                                 if (probability > 0.5f) {
                                     val x0 = px * 4
@@ -164,11 +179,11 @@ internal object BubbleMaskDetector {
         val original = IntArray(width * height)
         source.getPixels(original, 0, width, 0, 0, width, height)
         for (y in 0 until height) {
-            val modelY = ((y * scale + padTop).toInt()).coerceIn(0, MODEL_SIZE - 1)
+            val modelY = (y * scale + padTop).toInt().coerceIn(0, MODEL_SIZE - 1)
             val sourceRow = y * width
             val modelRow = modelY * MODEL_SIZE
             for (x in 0 until width) {
-                val modelX = ((x * scale + padLeft).toInt()).coerceIn(0, MODEL_SIZE - 1)
+                val modelX = (x * scale + padLeft).toInt().coerceIn(0, MODEL_SIZE - 1)
                 if (maskGrid[modelRow + modelX]) original[sourceRow + x] = Color.WHITE
             }
         }
@@ -177,26 +192,14 @@ internal object BubbleMaskDetector {
         return Result(result, detectedCount, System.currentTimeMillis() - started)
     }
 
-    private fun iou(a: Any, b: Any): Float {
-        // Kept separate from the model output decoding to make NMS deterministic.
-        val aa = a as BoxLike
-        val bb = b as BoxLike
-        val left = max(aa.left, bb.left)
-        val top = max(aa.top, bb.top)
-        val right = min(aa.right, bb.right)
-        val bottom = min(aa.bottom, bb.bottom)
+    private fun iou(a: BoxLike, b: BoxLike): Float {
+        val left = max(a.left, b.left)
+        val top = max(a.top, b.top)
+        val right = min(a.right, b.right)
+        val bottom = min(a.bottom, b.bottom)
         val intersection = max(0f, right - left) * max(0f, bottom - top)
-        val union = aa.w * aa.h + bb.w * bb.h - intersection
+        val union = a.w * a.h + b.w * b.h - intersection
         return if (union <= 0f) 0f else intersection / union
-    }
-
-    private interface BoxLike {
-        val left: Float
-        val top: Float
-        val right: Float
-        val bottom: Float
-        val w: Float
-        val h: Float
     }
 
     private fun downloadModel(destination: File) {
