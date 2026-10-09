@@ -28,6 +28,52 @@ object ModelCatalog {
         fetchGemini(apiKey)
     }
 
+    /** Live OpenRouter catalogue, restricted to zero-cost chat models. */
+    suspend fun openRouterFree(apiKey: String): List<LiveModel> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("https://openrouter.ai/api/v1/models")
+            .header("Authorization", "Bearer " + apiKey)
+            .get()
+            .build()
+        LlmHttp.await(LlmHttp.client.newCall(request)).use { resp ->
+            val text = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) {
+                throw RuntimeException("OpenRouter HTTP " + resp.code + ": " + text.take(160))
+            }
+            parseOpenRouterFree(text)
+        }
+    }
+
+    /**
+     * Only offers OpenRouter's free router or explicit :free variants.
+     * This prevents the picker from accidentally choosing a paid model.
+     */
+    fun parseOpenRouterFree(json: String): List<LiveModel> {
+        val models = JSONObject(json).optJSONArray("data") ?: return emptyList()
+        val out = ArrayList<LiveModel>()
+        for (i in 0 until models.length()) {
+            val m = models.optJSONObject(i) ?: continue
+            val id = m.optString("id")
+            if (id != "openrouter/free" && !id.endsWith(":free")) continue
+            if (EXCLUDE.any { id.contains(it, ignoreCase = true) }) continue
+            val pricing = m.optJSONObject("pricing")
+            if (id != "openrouter/free" && pricing != null) {
+                val prompt = pricing.optString("prompt", "")
+                val completion = pricing.optString("completion", "")
+                if ((prompt.toDoubleOrNull() ?: Double.POSITIVE_INFINITY) > 0.0 ||
+                    (completion.toDoubleOrNull() ?: Double.POSITIVE_INFINITY) > 0.0
+                ) continue
+            }
+            out.add(LiveModel(id, m.optString("name").ifBlank { id }))
+        }
+        val unique = out.distinctBy { it.id }
+        return unique.sortedWith(
+            compareByDescending<LiveModel> { it.id == "openrouter/free" }
+                .thenBy { it.label.lowercase() }
+                .thenBy { it.id }
+        ).take(40)
+    }
+
     private suspend fun fetchGemini(apiKey: String): List<LiveModel> {
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000")
