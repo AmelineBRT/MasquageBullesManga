@@ -302,8 +302,16 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("IA Pro ✨", settings.engine == EngineKind.LLM) {
+                Chip("IA Pro ✨", settings.engine == EngineKind.LLM && settings.provider != LlmProvider.OPENROUTER) {
                     scope.launch { repo.setEngine(EngineKind.LLM) }
+                }
+                Chip("IA gratuite ✨", settings.engine == EngineKind.LLM && settings.provider == LlmProvider.OPENROUTER) {
+                    scope.launch {
+                        repo.setEngine(EngineKind.LLM)
+                        repo.setProvider(LlmProvider.OPENROUTER)
+                        repo.setModel(LlmProvider.OPENROUTER, "openrouter/free")
+                        repo.setAiVision(AiVisionMode.OFF)
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -315,7 +323,7 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
                     EngineKind.LINGVA -> "Service communautaire gratuit sans clé. Il peut être limité ou indisponible ; l’application essaie ensuite Google, MyMemory, LibreTranslate puis le moteur hors ligne."
                     EngineKind.MICROSOFT -> "Microsoft Translator officiel via Azure. Le compte Azure nécessite une clé et une région ; l’offre F0 inclut un quota mensuel gratuit. En cas d’échec, MangaLens essaie Google puis MyMemory."
                     EngineKind.DEEPL -> "DeepL API. Une clé est nécessaire ; une clé DeepL API Free peut bénéficier d’un quota gratuit. Sinon les tarifs et limites de ton compte s’appliquent. En cas d’échec, MangaLens essaie Google puis MyMemory."
-                    EngineKind.LLM -> "L’IA lit les pages entières (y compris l’image) avec le contexte de l’histoire, un glossaire des noms, un ton naturel et les honorifiques. Une première traduction apparaît rapidement puis est améliorée. Une clé est nécessaire pour ce mode — celle de Gemini peut être gratuite."
+                    EngineKind.LLM -> if (settings.provider == LlmProvider.OPENROUTER) "IA texte uniquement. Le modèle openrouter/free choisit automatiquement un modèle gratuit disponible ; une clé OpenRouter est nécessaire, mais aucun modèle payant n’est sélectionné par défaut. Les quotas et la disponibilité des modèles gratuits peuvent varier." else "L’IA traduit le texte reconnu par l’OCR avec le contexte de l’histoire, un glossaire des noms et un ton naturel. Le mode texte seul est activé par défaut. Selon le fournisseur, une clé et des quotas peuvent s’appliquer."
                     EngineKind.MLKIT -> "100 % hors ligne après le téléchargement initial d'environ 30 Mo par langue. Qualité la plus simple."
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -457,22 +465,22 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Vision IA — laisser l’IA lire directement l’image de la page", style = MaterialTheme.typography.bodyMedium)
+                Text("Contenu envoyé à l’IA", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Chip("Vision IA (recommandé)", settings.aiVision != AiVisionMode.OFF) {
+                    Chip("Image (facultatif)", settings.aiVision != AiVisionMode.OFF) {
                         scope.launch { repo.setAiVision(AiVisionMode.AUTO) }
                     }
-                    Chip("Texte uniquement", settings.aiVision == AiVisionMode.OFF) {
+                    Chip("Texte uniquement (recommandé)", settings.aiVision == AiVisionMode.OFF) {
                         scope.launch { repo.setAiVision(AiVisionMode.OFF) }
                     }
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     if (settings.aiVision != AiVisionMode.OFF)
-                        "L’IA lit directement l’image — elle peut repérer l’écriture manuscrite, les lettrages stylisés et ce que l’OCR ne détecte pas (~150–300 Ko par page, moins avec l’économie de données). En cas d’échec, passage automatique au texte seul puis à Google."
+                        "L’image de la page est envoyée au fournisseur IA. Ce mode est facultatif et n’est pas nécessaire pour les modèles gratuits qui traduisent le texte."
                     else
-                        "Seul le texte reconnu par l’OCR est envoyé (quelques Ko). Idéal avec une connexion très lente ; les lettrages stylisés dépendent de l’OCR de l’appareil.",
+                        "Seul le texte reconnu par l’OCR est envoyé, jamais l’image. C’est le mode par défaut : moins de données et compatible avec les modèles IA gratuits qui n’acceptent que du texte.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
