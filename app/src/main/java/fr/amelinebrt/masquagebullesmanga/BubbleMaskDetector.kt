@@ -176,6 +176,10 @@ internal object BubbleMaskDetector {
             session.close()
         }
 
+        // Contract the segmentation slightly so the white fill stays inside the
+        // balloon outline instead of covering the black border and nearby artwork.
+        val tightenedMask = erodeMask(maskGrid, radius = 2)
+
         val original = IntArray(width * height)
         source.getPixels(original, 0, width, 0, 0, width, height)
         for (y in 0 until height) {
@@ -184,12 +188,51 @@ internal object BubbleMaskDetector {
             val modelRow = modelY * MODEL_SIZE
             for (x in 0 until width) {
                 val modelX = (x * scale + padLeft).toInt().coerceIn(0, MODEL_SIZE - 1)
-                if (maskGrid[modelRow + modelX]) original[sourceRow + x] = Color.WHITE
+                if (tightenedMask[modelRow + modelX]) original[sourceRow + x] = Color.WHITE
             }
         }
         val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         result.setPixels(original, 0, width, 0, 0, width, height)
         return Result(result, detectedCount, System.currentTimeMillis() - started)
+    }
+
+    /**
+     * Removes a narrow border from the predicted mask. A separable square erosion
+     * is used to keep the outline inside the balloon and reduce spill into nearby art.
+     */
+    private fun erodeMask(mask: BooleanArray, radius: Int): BooleanArray {
+        if (radius <= 0) return mask
+        val horizontal = BooleanArray(mask.size)
+        val result = BooleanArray(mask.size)
+
+        for (y in 0 until MODEL_SIZE) {
+            val row = y * MODEL_SIZE
+            for (x in radius until MODEL_SIZE - radius) {
+                var keep = true
+                for (dx in -radius..radius) {
+                    if (!mask[row + x + dx]) {
+                        keep = false
+                        break
+                    }
+                }
+                horizontal[row + x] = keep
+            }
+        }
+
+        for (y in radius until MODEL_SIZE - radius) {
+            val row = y * MODEL_SIZE
+            for (x in 0 until MODEL_SIZE) {
+                var keep = true
+                for (dy in -radius..radius) {
+                    if (!horizontal[(y + dy) * MODEL_SIZE + x]) {
+                        keep = false
+                        break
+                    }
+                }
+                result[row + x] = keep
+            }
+        }
+        return result
     }
 
     private fun iou(a: BoxLike, b: BoxLike): Float {
