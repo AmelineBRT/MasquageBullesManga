@@ -59,11 +59,15 @@ class LiveMaskService : Service() {
     private val processing = AtomicBoolean(false)
     private var latestFrame: Bitmap? = null
     private var lastFrameHash: Long = Long.MIN_VALUE
-    private var lastResultAt = 0L
+    private var frameVersion = 0L
+    private var lastOverlayBitmap: Bitmap? = null
 
     private val detectRunnable = Runnable {
-        val frame = synchronized(this) { latestFrame?.copy(Bitmap.Config.ARGB_8888, false) }
-            ?: return@Runnable
+        val snapshot = synchronized(this) {
+            Pair(latestFrame?.copy(Bitmap.Config.ARGB_8888, false), frameVersion)
+        }
+        val frame = snapshot.first ?: return@Runnable
+        val analysedVersion = snapshot.second
         if (!processing.compareAndSet(false, true)) {
             frame.recycle()
             return@Runnable
@@ -72,8 +76,12 @@ class LiveMaskService : Service() {
             try {
                 val result = BubbleMaskDetector.run(this@LiveMaskService, frame)
                 withContext(Dispatchers.Main) {
+                    val oldOverlay = lastOverlayBitmap
                     overlayView?.setImageBitmap(result.overlayBitmap)
-                    lastResultAt = System.currentTimeMillis()
+                    lastOverlayBitmap = result.overlayBitmap
+                    if (oldOverlay != null && oldOverlay !== result.overlayBitmap && !oldOverlay.isRecycled) {
+                        oldOverlay.recycle()
+                    }
                 }
                 // The preview and source are no longer needed after the overlay is set.
                 result.bitmap.recycle()
@@ -88,6 +96,13 @@ class LiveMaskService : Service() {
             } finally {
                 frame.recycle()
                 processing.set(false)
+                val newerFrameAvailable = synchronized(this@LiveMaskService) {
+                    frameVersion != analysedVersion
+                }
+                if (newerFrameAvailable) {
+                    workerHandler?.removeCallbacks(detectRunnable)
+                    workerHandler?.postDelayed(detectRunnable, 450L)
+                }
             }
         }
     }
@@ -103,6 +118,7 @@ class LiveMaskService : Service() {
                 synchronized(this) {
                     latestFrame?.recycle()
                     latestFrame = bitmap
+                    frameVersion++
                 }
                 // Wait for scrolling to stop briefly, so the mask is not drawn over
                 // a different frame than the one that was analysed.
@@ -269,7 +285,13 @@ class LiveMaskService : Service() {
             .setContentText("Le masquage se met à jour après le défilement.")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
-            .addAction(Notification.Action.Builder(null, "Arrêter", stopPendingIntent).build())
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                    "Arrêter",
+                    stopPendingIntent
+                ).build()
+            )
             .build()
     }
 
@@ -284,6 +306,8 @@ class LiveMaskService : Service() {
             latestFrame?.recycle()
             latestFrame = null
         }
+        lastOverlayBitmap?.let { if (!it.isRecycled) it.recycle() }
+        lastOverlayBitmap = null
         handlerThread?.quitSafely()
         scope.cancel()
         super.onDestroy()
