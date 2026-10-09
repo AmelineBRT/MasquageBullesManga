@@ -425,6 +425,20 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
                         scope.launch { repo.setModel(provider, picked) }
                     }
                 }
+                if (settings.provider == LlmProvider.OPENROUTER) {
+                    Spacer(Modifier.height(6.dp))
+                    OpenRouterFreeModelRow(apiKey = keyDraft.trim()) { picked ->
+                        modelDraft = picked
+                        modelEdited = true
+                        val provider = settings.provider
+                        scope.launch { repo.setModel(provider, picked) }
+                    }
+                    Text(
+                        "Cette liste ne propose que le routeur gratuit ou des modèles explicitement gratuits. Les quotas peuvent varier selon le modèle.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (settings.provider == LlmProvider.CUSTOM) {
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
@@ -787,6 +801,70 @@ private fun providerKeyHelp(provider: LlmProvider): ProviderKeyHelp = when (prov
  * newest Flash first — so the picker shows models released long after this
  * build shipped. Manual typing in the field above always stays available.
  */
+/**
+ * Live OpenRouter catalogue filtered to free endpoints only. This keeps the
+ * free-model experiment easy to try without typing an accidentally paid model.
+ */
+@Composable
+private fun OpenRouterFreeModelRow(apiKey: String, onPick: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var models by remember { mutableStateOf<List<ModelCatalog.LiveModel>>(emptyList()) }
+    Box {
+        OutlinedButton(
+            enabled = !loading,
+            onClick = {
+                if (apiKey.isBlank()) {
+                    error = "Saisissez d’abord votre clé OpenRouter gratuite."
+                    return@OutlinedButton
+                }
+                error = null
+                if (models.isNotEmpty()) {
+                    open = true
+                    return@OutlinedButton
+                }
+                loading = true
+                scope.launch {
+                    try {
+                        models = ModelCatalog.openRouterFree(apiKey)
+                        open = models.isNotEmpty()
+                        if (models.isEmpty()) error = "Aucun modèle gratuit compatible n’a été renvoyé."
+                    } catch (e: Exception) {
+                        error = "Impossible de récupérer les modèles gratuits : " + (e.message ?: "erreur réseau")
+                    } finally {
+                        loading = false
+                    }
+                }
+            }
+        ) { Text(if (loading) "Recherche des modèles gratuits…" else "Choisir un modèle OpenRouter gratuit ▾") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            models.forEach { m ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(m.label)
+                            Text(
+                                m.id,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    onClick = {
+                        open = false
+                        onPick(m.id)
+                    }
+                )
+            }
+        }
+    }
+    error?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    }
+}
+
 @Composable
 private fun GeminiModelRow(apiKey: String, onPick: (String) -> Unit) {
     val scope = rememberCoroutineScope()
