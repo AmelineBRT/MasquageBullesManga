@@ -60,6 +60,7 @@ class LiveMaskService : Service() {
     private var latestFrame: Bitmap? = null
     private var lastFrameHash: Long = Long.MIN_VALUE
     private var frameVersion = 0L
+    private var lastSampleAt = 0L
     private var lastOverlayBitmap: Bitmap? = null
 
     private val detectRunnable = Runnable {
@@ -108,6 +109,13 @@ class LiveMaskService : Service() {
     }
 
     private val imageListener = ImageReader.OnImageAvailableListener { reader ->
+        val now = System.currentTimeMillis()
+        if (now - lastSampleAt < 250L) {
+            val skipped = reader.acquireLatestImage()
+            skipped?.close()
+            return@OnImageAvailableListener
+        }
+        lastSampleAt = now
         val image = reader.acquireLatestImage() ?: return@OnImageAvailableListener
         try {
             val bitmap = image.toBitmap()
@@ -195,8 +203,7 @@ class LiveMaskService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START }
         windowManager?.addView(image, overlayParams)
