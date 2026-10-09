@@ -54,6 +54,7 @@ class LiveMaskService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var overlayView: ImageView? = null
+    private var opacityTestView: View? = null
     private var windowManager: WindowManager? = null
     private var handlerThread: HandlerThread? = null
     private var workerHandler: Handler? = null
@@ -284,22 +285,48 @@ class LiveMaskService : Service() {
         return hash
     }
 
-    /** Schedules a solid-white overlay test, with time to return to the manga reader. */
+    /**
+     * Shows a second, independent diagnostic window using PixelFormat.OPAQUE.
+     * This deliberately bypasses the ImageView/bitmap path so we can tell whether
+     * translucency comes from the bitmap pipeline or from Android's overlay window.
+     */
     private fun showOpacityTest() {
-        val view = overlayView ?: return
-        // Pause frame analysis for the 3-second lead-in plus the 1.8-second white test.
-        opacityTestUntil = System.currentTimeMillis() + 4800L
-        view.postDelayed({
-            if (overlayView !== view) return@postDelayed
-            val width = max(1, view.width)
-            val height = max(1, view.height)
-            val testBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            testBitmap.eraseColor(Color.WHITE)
-            view.setImageBitmap(testBitmap)
-            view.postDelayed({
-                if (overlayView === view) view.setImageBitmap(lastOverlayBitmap)
-                if (!testBitmap.isRecycled) testBitmap.recycle()
-            }, 1800L)
+        val anchor = overlayView ?: return
+        val wm = windowManager ?: return
+        opacityTestUntil = System.currentTimeMillis() + 5000L
+        anchor.postDelayed({
+            if (overlayView !== anchor || windowManager !== wm) return@postDelayed
+            val testView = View(this).apply {
+                setBackgroundColor(Color.WHITE)
+                alpha = 1f
+            }
+            val testParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.OPAQUE
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                alpha = 1f
+            }
+            try {
+                wm.addView(testView, testParams)
+                opacityTestView = testView
+                testView.postDelayed({
+                    try { wm.removeView(testView) } catch (_: Exception) {}
+                    if (opacityTestView === testView) opacityTestView = null
+                }, 1800L)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this,
+                    "Test de fenêtre opaque impossible : ${e.message ?: "erreur"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }, 3000L)
     }
 
@@ -359,6 +386,8 @@ class LiveMaskService : Service() {
         try { imageReader?.setOnImageAvailableListener(null, null) } catch (_: Exception) {}
         try { imageReader?.close() } catch (_: Exception) {}
         try { projection?.stop() } catch (_: Exception) {}
+        try { opacityTestView?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
+        opacityTestView = null
         try { overlayView?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
         synchronized(this) {
             latestFrame?.recycle()
