@@ -134,10 +134,22 @@ private fun MangaMaskTestScreen() {
         )
         Button(
             onClick = {
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                status = "Dans les paramètres, active « Masquage Bulles Manga – test de superposition », puis reviens ici."
+            }
+        ) {
+            Text("Activer le test de superposition avancée")
+        }
+        Text(
+            "Ce test utilise un type de fenêtre Android différent. Le service ne lit pas le contenu des applications ; il affiche seulement un écran blanc temporaire.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Button(
+            onClick = {
                 val testIntent = Intent(context, LiveMaskService::class.java).setAction(LiveMaskService.ACTION_TEST_OPACITY)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(testIntent)
                 else context.startService(testIntent)
-                status = "Test lancé : retourne tout de suite dans ton manga. Dans 3 secondes, le masque deviendra entièrement blanc pendant environ 2 secondes."
+                status = "Test envoyé : retourne tout de suite dans ton manga. Après 3 secondes, une fenêtre blanche d'un autre type apparaîtra pendant environ 2 secondes. Si rien ne se passe, vérifie que le service de test est activé."
             },
             enabled = liveModeStarted
         ) {
