@@ -63,7 +63,7 @@ class LiveMaskService : Service() {
     private var lastSampleAt = 0L
     private var lastOverlayBitmap: Bitmap? = null
 
-    private val detectRunnable = Runnable {
+    private val detectRunnable: Runnable = Runnable {
         val snapshot = synchronized(this) {
             Pair(latestFrame?.copy(Bitmap.Config.ARGB_8888, false), frameVersion)
         }
@@ -108,7 +108,7 @@ class LiveMaskService : Service() {
         }
     }
 
-    private val imageListener = ImageReader.OnImageAvailableListener { reader ->
+    private val imageListener: ImageReader.OnImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
         val now = System.currentTimeMillis()
         if (now - lastSampleAt < 250L) {
             val skipped = reader.acquireLatestImage()
