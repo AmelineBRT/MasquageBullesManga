@@ -2,7 +2,12 @@ package fr.amelinebrt.masquagebullesmanga
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.app.Activity
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -60,6 +65,23 @@ private fun MangaMaskTestScreen() {
     var bubbleCount by remember { mutableIntStateOf(0) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
 
+    val liveCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            val serviceIntent = Intent(context, LiveMaskService::class.java).apply {
+                putExtra(LiveMaskService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(LiveMaskService.EXTRA_RESULT_DATA, data)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent)
+            else context.startService(serviceIntent)
+            status = "Masquage en direct lancé. Retourne dans ton application de manga et fais défiler ; le masque se met à jour après une courte pause."
+        } else {
+            status = "Capture annulée. Aucun écran n'a été capturé."
+        }
+    }
+
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -84,8 +106,31 @@ private fun MangaMaskTestScreen() {
     ) {
         Text("Masquage Bulles Manga", style = MaterialTheme.typography.headlineSmall)
         Text("Banc d'essai indépendant : segmentation locale des bulles et remplissage blanc opaque. Aucun OCR, aucune traduction.")
+        Button(
+            onClick = {
+                if (!Settings.canDrawOverlays(context)) {
+                    status = "Autorise « Afficher par-dessus les autres applications », puis reviens ici et relance le mode lecture."
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                } else {
+                    val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                    liveCaptureLauncher.launch(manager.createScreenCaptureIntent())
+                }
+            },
+            enabled = !isBusy
+        ) {
+            Text("Tester en lecture réelle")
+        }
+        Text(
+            "Mode expérimental : autorise la capture d'écran Android, puis retourne dans ton lecteur de manga. Le masquage attend une courte pause du défilement ; le traitement peut prendre un peu de temps.",
+            style = MaterialTheme.typography.bodySmall
+        )
         Button(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !isBusy) {
-            Text("Choisir une page")
+            Text("Choisir une page (test fixe)")
         }
         if (sourceBitmap != null) {
             Button(
