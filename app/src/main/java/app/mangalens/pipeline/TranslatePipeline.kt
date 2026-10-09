@@ -134,7 +134,7 @@ class TranslatePipeline(
         // OCR + grouping, exactly as in the original fast version of MangaLens.
         // The balloon pixel detector is useful for Vision AI, but putting it on
         // the critical path made every free translation slower.
-        if (settings.engine == EngineKind.GOOGLE) {
+        if (settings.engine != EngineKind.LLM) {
             // Keep Google's fast text-only translation path, but still run the
             // cheap pixel balloon scan in parallel with OCR. Without this scan
             // every OCR word on the page became a translation candidate,
@@ -162,9 +162,10 @@ class TranslatePipeline(
                 cleanOcr.lines, bitmap.height, ignoreTop, ignoreBottom, cleanOcr.lang, exclusions,
                 balloons, includeEmptyBalloons = false, panels = scan.panels,
             )
-            val bubbles = groupedBubbles.filter { bubble ->
-                detected.any { balloon -> textInsideBalloon(bubble.box, balloon) }
-            }
+            // Do not discard a grouped OCR region just because balloon detection
+            // missed its shape. Stylized/jagged speech bubbles often fail the
+            // pixel-mask containment test even when OCR has read their text.
+            val bubbles = groupedBubbles
             val anchorLines = cleanOcr.lines.mapNotNull { l ->
                 val cleaned = Script.clean(l.text)
                 if (cleaned.length < 2) return@mapNotNull null
@@ -236,9 +237,10 @@ class TranslatePipeline(
             ocrResult.lines, bitmap.height, ignoreTop, ignoreBottom, ocrResult.lang, exclusions,
             balloons, includeEmptyBalloons = useVision, panels = scan.panels,
         )
-        val bubbles = groupedBubbles.filter { bubble ->
-            detected.any { balloon -> textInsideBalloon(bubble.box, balloon) }
-        }
+        // Keep grouped OCR regions even if the pixel detector missed the
+        // balloon contour; the strict containment gate was dropping real dialogue.
+        // Keep default mode bubble-only; do not append free-floating raw OCR text.
+        val bubbles = groupedBubbles
         // Raw OCR lines, kept for anchoring the vision model's unanchored
         // answers by their text — the lines know where the text physically
         // is even when they never survived into a region.
@@ -262,12 +264,33 @@ class TranslatePipeline(
         )
     }
 
+    /** Recognizes isolated, oversized Japanese sound effects before raw OCR lines are added. */
+    private fun looksLikeSfx(text: String, line: OcrLine, lines: List<OcrLine>): Boolean {
+        val compact = text.filterNot { it.isWhitespace() || !it.isLetterOrDigit() }
+        val known = listOf(
+            "ドキドキ", "どきどき", "キュン", "きゅん", "ゴゴゴ", "ガーン",
+            "ギュッ", "ぎゅっ", "バン", "ドン", "ザワザワ", "ざわざわ",
+            "ワクワク", "わくわく", "ガタ", "ゴト", "バタ", "ガチャ",
+            "カチ", "パチ", "キラキラ", "きらきら", "フラフラ", "ふらふら",
+            "ズキッ", "ずきっ", "ドサッ", "どさっ", "ピタ", "ぴた"
+        ).any { compact == it || (compact.startsWith(it) && compact.length <= it.length + 2) }
+        if (known) return true
+        val cjk = Script.cjkCount(text)
+        if (cjk == 0 || cjk > 10) return false
+        val stroke = if (line.vertical) line.box.width() else line.box.height()
+        val strokes = lines.map { if (it.vertical) it.box.width() else it.box.height() }.sorted()
+        val median = strokes.getOrNull(strokes.size / 2)?.coerceAtLeast(8) ?: return false
+        val kanaRatio = Script.katakanaCount(text).toFloat() / cjk
+        return stroke > median * 1.75f || (kanaRatio >= 0.8f && cjk <= 8 && stroke > median * 1.2f)
+    }
+
     /** Ensures every usable OCR line remains translatable even when grouping or balloon detection rejects it. */
     private fun includeAllOcrLines(grouped: List<Bubble>, lines: List<OcrLine>): List<Bubble> {
         val out = grouped.toMutableList()
         for (line in lines) {
             val text = Script.clean(line.text)
             if (text.length < 2 || line.box.width() < 2 || line.box.height() < 2) continue
+            if (looksLikeSfx(text, line, lines)) continue
             val alreadyCovered = out.any { b ->
                 val ix = maxOf(0, minOf(b.box.right, line.box.right) - maxOf(b.box.left, line.box.left))
                 val iy = maxOf(0, minOf(b.box.bottom, line.box.bottom) - maxOf(b.box.top, line.box.top))
@@ -388,11 +411,12 @@ class TranslatePipeline(
             val f: suspend (PageResult) -> Unit = { pr -> emit(pr.copy(bubbles = soleClaimants(pr.bubbles))) }
             f
         }
-        val dispatchBubbles = if (translateOutsideBalloons) {
-            includeAllOcrLines(bubbles, ocrResult.lines)
-        } else {
-            bubbles
-        }
+        // Always recover usable OCR lines that grouping omitted (for example,
+        // short or unusually spaced text inside a real speech balloon). The OCR
+        // lines have already passed WatermarkFilter, and known SFX are excluded
+        // by includeAllOcrLines. This is also useful in the normal bubble-only
+        // mode because the recovered line can still bind to a detected balloon.
+        val dispatchBubbles = includeAllOcrLines(bubbles, ocrResult.lines)
         val raw = dispatch(
             bitmap, settings, analysis.exclusions, wrapped,
             ocrResult, dispatchBubbles, detected, analysis.anchorLines, analysis.ignoreTop, analysis.ignoreBottom, useVision,
@@ -428,7 +452,7 @@ class TranslatePipeline(
         // merely because BalloonFinder failed to recognize their surrounding shape.
         // The old explicit outside-balloon switch remains accepted for callers
         // but is no longer needed to unlock text.
-        val targetBubbles = bubbles.filter { it.text.isNotBlank() }
+        val targetBubbles = bubbles.filter { it.text.isNotBlank() && it.kind != BubbleKind.SFX }
 
         if (settings.engine != EngineKind.LLM) {
             val result = machineTranslate(bitmap, targetBubbles, ocrResult.lang, settings, detected, translateOutsideBalloons, onPartial = onPartial)
@@ -575,7 +599,7 @@ class TranslatePipeline(
         // Balloons detected in the pixels but unread by OCR carry no text; the
         // machine engines have nothing to work from and would render blanks.
         val dialogue = rowWiseOrder(
-            bubbles.filter { it.text.isNotBlank() && (translateOutsideBalloons || it.kind != BubbleKind.SFX) }
+            bubbles.filter { it.text.isNotBlank() && it.kind != BubbleKind.SFX }
         )
         if (dialogue.isEmpty()) return PageResult(emptyList(), "Google", null)
 
@@ -583,33 +607,49 @@ class TranslatePipeline(
         var label = "Google"
         var note: String? = null
 
-        // Translate one visual row at a time. GoogleFreeEngine can batch a
-        // row in one request (or parallelize it as a fallback), which is much
-        // faster than one network round-trip per balloon. Results are still
-        // emitted one-by-one left-to-right so the reader sees the requested
-        // progressive order.
-        val rows = rowWiseGroups(dialogue)
-        for (row in rows) {
-            val outcome = translation.translate(
-                row.map { it.text },
+        // Translate the whole visible page in one batch. Calling Google once
+        // per visual row was easy to rate-limit while scrolling quickly; the
+        // provider already supports newline-separated entries and aligns its
+        // response back to each source bubble. Keep rendering in reading order.
+        // If Google returns HTTP 429 (or another temporary request failure),
+        // preserve the readable source text in its original position instead
+        // of aborting the page and leaving the reader with no overlay.
+        val outcome = try {
+            translation.translate(
+                dialogue.map { it.text },
                 lang,
                 settings,
-                kinds = row.map { it.kind },
-                runs = row.map { it.runId },
-                parts = row.map { it.runPart },
+                kinds = dialogue.map { it.kind },
+                runs = dialogue.map { it.runId },
+                parts = dialogue.map { it.runPart },
                 forceGoogle = forceGoogle,
             )
-            label = outcome.engineLabel
-            note = outcome.note ?: note
-            for (index in row.indices) {
-                val bubble = row[index]
-                val translated = outcome.texts.getOrNull(index).orEmpty()
-                val gated = JunkFilter.accept(bubble.text, translated, lang) ?: continue
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            label = "Texte original"
+            note = error.message ?: "Traduction indisponible : texte source conservé."
+            for (bubble in dialogue) {
                 rendered.add(
-                    renderBubble(bitmap, bubble.box, gated, bubble.text, bubble.vertical, bubble.kind, detected)
+                    renderBubble(bitmap, bubble.box, bubble.text, bubble.text, bubble.vertical, bubble.kind, detected)
                 )
                 onPartial?.invoke(PageResult(rendered.toList(), label, note))
             }
+            return PageResult(rendered.toList(), label, note)
+        }
+        label = outcome.engineLabel
+        note = outcome.note
+        for (index in dialogue.indices) {
+            val bubble = dialogue[index]
+            val translated = outcome.texts.getOrNull(index).orEmpty()
+            val gated = if (translated.isBlank()) null else JunkFilter.accept(bubble.text, translated, lang)
+            // Keep the original whenever an individual slot is missing or
+            // unusable, rather than silently dropping that balloon.
+            val visibleText = gated ?: bubble.text
+            rendered.add(
+                renderBubble(bitmap, bubble.box, visibleText, bubble.text, bubble.vertical, bubble.kind, detected)
+            )
+            onPartial?.invoke(PageResult(rendered.toList(), label, note))
         }
 
         return PageResult(rendered.toList(), label, note)
@@ -979,7 +1019,6 @@ class TranslatePipeline(
         // A gradient or textured balloon is cleaned with its own paper
         // continued under the lettering, not with a flat patch of the average.
         val fill = balloon?.let { BalloonFill.build(bitmap, it) }
-        val outline = balloon?.let { balloonOutline(bitmap, it) }
         return RenderBubble(
             box = Rect(box),
             // Manga lettering is conventionally all-caps. Keep the translation
@@ -993,7 +1032,7 @@ class TranslatePipeline(
             kind = kind,
             balloon = balloon,
             fill = fill,
-            outline = outline,
+            floatingText = balloon == null && kind != BubbleKind.SFX,
         )
     }
 
@@ -1029,8 +1068,36 @@ class TranslatePipeline(
      */
     private fun balloonFor(box: Rect, detected: List<Balloon>): Balloon? {
         detected.firstOrNull { it.box == box }?.let { return it }
-        return detected.filter { textInsideBalloon(box, it) }
-            .maxByOrNull { containedShare(box, it.box) }
+        val cx = box.centerX()
+        val cy = box.centerY()
+        // OCR boxes occasionally include margins or only part of a word. If
+        // their centre is still inside the detected balloon mask, treat the
+        // text as belonging to that balloon instead of falling back to a huge
+        // rectangular card that leaves a few source glyphs visible.
+        return detected.filter { balloon ->
+            textInsideBalloon(box, balloon) ||
+                (balloon.box.contains(cx, cy) && maskContains(balloon, cx, cy)) ||
+                // OCR boxes around a word can spill across the curved rim of
+                // a balloon. If the text centre is still within its bounds and
+                // most of the OCR box overlaps the balloon rectangle, retain
+                // the association so the full balloon gets cleaned.
+                // OCR boxes can extend beyond the detected rim so far that
+                // their centre falls just outside the balloon. If most of the
+                // text box still overlaps the balloon rectangle, attach it to
+                // the balloon anyway; otherwise it is rendered as displaced
+                // floating text and leaves the original glyphs visible.
+                (containedShare(box, balloon.box) >= 0.45f)
+        }.maxByOrNull { containedShare(box, it.box) }
+    }
+
+    private fun maskContains(balloon: Balloon, x: Int, y: Int): Boolean {
+        if (!balloon.box.contains(x, y) || balloon.maskW <= 0 || balloon.maskH <= 0) return false
+        val mx = ((x - balloon.box.left).toFloat() / balloon.box.width() * balloon.maskW)
+            .toInt().coerceIn(0, balloon.maskW - 1)
+        val my = ((y - balloon.box.top).toFloat() / balloon.box.height() * balloon.maskH)
+            .toInt().coerceIn(0, balloon.maskH - 1)
+        val index = my * balloon.maskW + mx
+        return index in balloon.mask.indices && balloon.mask[index]
     }
 
     /** Fraction of [box] inside [within]. */
@@ -1084,46 +1151,6 @@ class TranslatePipeline(
         val avg = Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
         // Most bubbles are white; snap near-white fills to pure white.
         return if (!balloon.inverted && luminance(avg) > 190) Color.WHITE else avg
-    }
-
-    /** Copies only the detected balloon boundary from the source page. */
-    private fun balloonOutline(bitmap: Bitmap, balloon: Balloon): Bitmap? {
-        val w = balloon.maskW
-        val h = balloon.maskH
-        if (w < 1 || h < 1 || balloon.mask.size < w * h) return null
-        val out = IntArray(w * h)
-        val box = balloon.box
-        for (y in 0 until h) {
-            for (x in 0 until w) {
-                val i = y * w + x
-                if (!balloon.mask[i]) continue
-                val boundary = x == 0 || y == 0 || x == w - 1 || y == h - 1 ||
-                    !balloon.mask[i - 1] || !balloon.mask[i + 1] ||
-                    !balloon.mask[i - w] || !balloon.mask[i + w]
-                if (!boundary) continue
-                val sx = (box.left + ((x * 2 + 1) * box.width()) / (2 * w)).coerceIn(0, bitmap.width - 1)
-                val sy = (box.top + ((y * 2 + 1) * box.height()) / (2 * h)).coerceIn(0, bitmap.height - 1)
-                // Keep a small source-pixel halo around the detected boundary.
-                // This preserves the original balloon stroke even when the detector's
-                // binary mask stops a few pixels inside the visible outline.
-                var darkest = bitmap.getPixel(sx, sy)
-                var darkLum = luminance(darkest)
-                for (dy in -3..3) for (dx in -3..3) {
-                    val nx = (sx + dx).coerceIn(0, bitmap.width - 1)
-                    val ny = (sy + dy).coerceIn(0, bitmap.height - 1)
-                    val q = bitmap.getPixel(nx, ny)
-                    val qLum = luminance(q)
-                    if (qLum < darkLum) {
-                        darkest = q
-                        darkLum = qLum
-                    }
-                }
-                // Only retain genuinely dark stroke pixels; white/grey source pixels
-                // stay covered by the opaque fill.
-                if (darkLum < 160) out[i] = darkest or (0xFF shl 24)
-            }
-        }
-        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
     }
 
     private fun luminance(c: Int) = (Color.red(c) * 299 + Color.green(c) * 587 + Color.blue(c) * 114) / 1000
