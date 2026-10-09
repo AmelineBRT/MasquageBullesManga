@@ -284,19 +284,23 @@ class LiveMaskService : Service() {
         return hash
     }
 
-    /** Briefly paints a solid white test patch, independent of detection, to isolate window compositing. */
+    /** Schedules a solid-white overlay test, with time to return to the manga reader. */
     private fun showOpacityTest() {
         val view = overlayView ?: return
-        val width = max(1, view.width)
-        val height = max(1, view.height)
-        val testBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        testBitmap.eraseColor(Color.WHITE)
-        opacityTestUntil = System.currentTimeMillis() + 1800L
-        view.setImageBitmap(testBitmap)
+        // Pause frame analysis for the 3-second lead-in plus the 1.8-second white test.
+        opacityTestUntil = System.currentTimeMillis() + 4800L
         view.postDelayed({
-            if (overlayView === view) view.setImageBitmap(lastOverlayBitmap)
-            if (!testBitmap.isRecycled) testBitmap.recycle()
-        }, 1800L)
+            if (overlayView !== view) return@postDelayed
+            val width = max(1, view.width)
+            val height = max(1, view.height)
+            val testBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            testBitmap.eraseColor(Color.WHITE)
+            view.setImageBitmap(testBitmap)
+            view.postDelayed({
+                if (overlayView === view) view.setImageBitmap(lastOverlayBitmap)
+                if (!testBitmap.isRecycled) testBitmap.recycle()
+            }, 1800L)
+        }, 3000L)
     }
 
     private fun createNotificationChannel() {
