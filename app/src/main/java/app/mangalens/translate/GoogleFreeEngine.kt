@@ -90,6 +90,7 @@ class GoogleFreeEngine : TranslationEngine {
         if (slot < items.size || consumed < boundaries.last()) return null
         val out = builders.map { it.toString().replace(Regex("\\s+"), " ").trim() }
         if (out.any { it.isEmpty() }) return null
+        if (allMeaningfulResultsUntranslated(items, out)) return null
         // A slot still reading as CJK means Google echoed it untranslated.
         if (out.any { Script.cjkCount(it) > it.length * 0.4f }) return null
         return out
@@ -98,7 +99,11 @@ class GoogleFreeEngine : TranslationEngine {
     private suspend fun translateOne(text: String, lang: SourceLang): String {
         val sb = StringBuilder()
         for ((trans, _) in fetchRows(text, lang)) sb.append(trans)
-        return sb.toString().trim().ifEmpty { text }
+        val result = sb.toString().trim().ifEmpty { text }
+        if (allMeaningfulResultsUntranslated(listOf(text), listOf(result))) {
+            throw RuntimeException("Google Translate a renvoyé le texte anglais sans le traduire")
+        }
+        return result
     }
 
     /** One request; returns Google's (translated, original) segment pairs. */
