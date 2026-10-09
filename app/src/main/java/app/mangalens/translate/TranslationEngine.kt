@@ -30,6 +30,8 @@ class TranslationService(
 
     private val google = GoogleFreeEngine()
     private val myMemory = MyMemoryEngine()
+    private val libreTranslate = LibreTranslateEngine()
+    private val lingva = LingvaEngine()
     private val mlkit = MlKitEngine()
 
     data class Outcome(val texts: List<String>, val engineLabel: String, val note: String? = null)
@@ -49,14 +51,17 @@ class TranslationService(
         forceGoogle: Boolean = false,
         onProgress: (suspend (Map<Int, String>) -> Unit)? = null,
     ): Outcome {
+        val freeFallbacks = listOf(google, myMemory, libreTranslate, lingva, mlkit)
         val chain: List<TranslationEngine> = when {
             forceGoogle -> listOf(google)
-            settings.engine == EngineKind.LLM -> listOf(LlmEngine(settings, glossary, cast), google, myMemory, mlkit)
-            settings.engine == EngineKind.GOOGLE -> listOf(google, myMemory, mlkit)
-            settings.engine == EngineKind.MYMEMORY -> listOf(myMemory, google, mlkit)
-            settings.engine == EngineKind.MICROSOFT -> listOf(MicrosoftTranslatorEngine(settings.microsoftApiKey, settings.microsoftRegion), google, myMemory, mlkit)
-            settings.engine == EngineKind.DEEPL -> listOf(DeepLEngine(settings.deeplApiKey), google, myMemory, mlkit)
-            else -> listOf(mlkit, google, myMemory)
+            settings.engine == EngineKind.LLM -> listOf(LlmEngine(settings, glossary, cast)) + freeFallbacks
+            settings.engine == EngineKind.GOOGLE -> freeFallbacks
+            settings.engine == EngineKind.MYMEMORY -> listOf(myMemory, google, libreTranslate, lingva, mlkit)
+            settings.engine == EngineKind.LIBRETRANSLATE -> listOf(libreTranslate, google, myMemory, lingva, mlkit)
+            settings.engine == EngineKind.LINGVA -> listOf(lingva, google, myMemory, libreTranslate, mlkit)
+            settings.engine == EngineKind.MICROSOFT -> listOf(MicrosoftTranslatorEngine(settings.microsoftApiKey, settings.microsoftRegion)) + freeFallbacks
+            settings.engine == EngineKind.DEEPL -> listOf(DeepLEngine(settings.deeplApiKey)) + freeFallbacks
+            else -> listOf(mlkit, google, myMemory, libreTranslate, lingva)
         }
         var lastError: Exception? = null
         for (engine in chain) {
