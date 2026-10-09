@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_opacity_test_description">Service de test de superposition opaque pour Masquage Bulles Manga. Il affiche une fenêtre blanche temporaire lors d'un test manuel et ne lit pas le contenu des fenêtres.</string>
+</resources>
