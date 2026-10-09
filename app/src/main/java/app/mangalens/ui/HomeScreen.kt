@@ -539,6 +539,8 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
                                     EngineKind.MLKIT -> MlKitEngine().translate(sample, SourceLang.AUTO)
                                     EngineKind.GOOGLE -> GoogleFreeEngine().translate(sample, SourceLang.AUTO)
                                     EngineKind.MYMEMORY -> MyMemoryEngine().translate(sample, SourceLang.AUTO)
+                                    EngineKind.LIBRETRANSLATE -> app.mangalens.translate.LibreTranslateEngine().translate(sample, SourceLang.AUTO)
+                                    EngineKind.LINGVA -> app.mangalens.translate.LingvaEngine().translate(sample, SourceLang.AUTO)
                                     EngineKind.DEEPL -> DeepLEngine(settings.deeplApiKey).translate(sample, SourceLang.AUTO)
                                     EngineKind.MICROSOFT -> MicrosoftTranslatorEngine(settings.microsoftApiKey, settings.microsoftRegion).translate(sample, SourceLang.AUTO)
                                 }
