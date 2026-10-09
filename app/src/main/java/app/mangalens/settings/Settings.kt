@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 
-enum class EngineKind { GOOGLE, MYMEMORY, MICROSOFT, DEEPL, LLM, MLKIT }
+enum class EngineKind { GOOGLE, MYMEMORY, LIBRETRANSLATE, LINGVA, MICROSOFT, DEEPL, LLM, MLKIT }
 enum class LlmProvider { ANTHROPIC, OPENAI, GEMINI, OPENROUTER, CUSTOM }
 enum class SourceLang { AUTO, EN, KO, JA, ZH }
 enum class CaptureMode { AUTO, MANUAL }
