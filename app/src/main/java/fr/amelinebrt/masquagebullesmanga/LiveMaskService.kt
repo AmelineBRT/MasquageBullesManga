@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -42,6 +43,7 @@ import kotlin.math.max
 class LiveMaskService : Service() {
     companion object {
         const val ACTION_STOP = "fr.amelinebrt.masquagebullesmanga.STOP_LIVE_MASK"
+        const val ACTION_TEST_OPACITY = "fr.amelinebrt.masquagebullesmanga.TEST_OVERLAY_OPACITY"
         const val EXTRA_RESULT_CODE = "projection_result_code"
         const val EXTRA_RESULT_DATA = "projection_result_data"
         private const val CHANNEL_ID = "live_mask_channel"
@@ -62,6 +64,7 @@ class LiveMaskService : Service() {
     private var frameVersion = 0L
     private var lastSampleAt = 0L
     private var lastOverlayBitmap: Bitmap? = null
+    @Volatile private var opacityTestUntil = 0L
 
     private val detectRunnable: Runnable = Runnable {
         val snapshot = synchronized(this) {
@@ -110,6 +113,11 @@ class LiveMaskService : Service() {
 
     private val imageListener: ImageReader.OnImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
         val now = System.currentTimeMillis()
+        if (now < opacityTestUntil) {
+            val skipped = reader.acquireLatestImage()
+            skipped?.close()
+            return@OnImageAvailableListener
+        }
         if (now - lastSampleAt < 250L) {
             val skipped = reader.acquireLatestImage()
             skipped?.close()
@@ -148,6 +156,10 @@ class LiveMaskService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_TEST_OPACITY) {
+            showOpacityTest()
+            return START_STICKY
         }
         if (projection != null) return START_STICKY
 
@@ -272,6 +284,21 @@ class LiveMaskService : Service() {
         return hash
     }
 
+    /** Briefly paints a solid white test patch, independent of detection, to isolate window compositing. */
+    private fun showOpacityTest() {
+        val view = overlayView ?: return
+        val width = max(1, view.width)
+        val height = max(1, view.height)
+        val testBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        testBitmap.eraseColor(Color.WHITE)
+        opacityTestUntil = System.currentTimeMillis() + 1800L
+        view.setImageBitmap(testBitmap)
+        view.postDelayed({
+            if (overlayView === view) view.setImageBitmap(lastOverlayBitmap)
+            if (!testBitmap.isRecycled) testBitmap.recycle()
+        }, 1800L)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -289,6 +316,11 @@ class LiveMaskService : Service() {
             this, 1, stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val testIntent = Intent(this, LiveMaskService::class.java).setAction(ACTION_TEST_OPACITY)
+        val testPendingIntent = PendingIntent.getService(
+            this, 2, testIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
         } else {
@@ -300,6 +332,13 @@ class LiveMaskService : Service() {
             .setContentText("Le masquage se met à jour après le défilement.")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_view),
+                    "Tester le blanc opaque",
+                    testPendingIntent
+                ).build()
+            )
             .addAction(
                 Notification.Action.Builder(
                     android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
