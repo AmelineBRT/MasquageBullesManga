@@ -112,7 +112,10 @@ class LibreTranslateEngine : TranslationEngine {
                         }
                         val out = if (body.trimStart().startsWith("[")) {
                             val arr = org.json.JSONArray(body)
-                            (0 until arr.length()).map { arr.optString(it) }
+                            (0 until arr.length()).map { i ->
+                                val value = arr.opt(i)
+                                if (value is JSONObject) value.optString("translatedText") else value?.toString().orEmpty()
+                            }
                         } else {
                             val root = runCatching { JSONObject(body) }.getOrElse {
                                 throw RuntimeException("Réponse LibreTranslate non JSON : ${body.take(100)}", it)
