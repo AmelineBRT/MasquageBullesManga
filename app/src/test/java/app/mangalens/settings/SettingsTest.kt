@@ -186,7 +186,7 @@ class SettingsTest {
             LlmProvider.ANTHROPIC to "claude-sonnet-5",
             LlmProvider.OPENAI to "gpt-4o-mini",
             LlmProvider.GEMINI to "gemini-flash-latest",
-            LlmProvider.OPENROUTER to "anthropic/claude-sonnet-4.5",
+            LlmProvider.OPENROUTER to "openrouter/free",
             LlmProvider.CUSTOM to "",
         )
 
