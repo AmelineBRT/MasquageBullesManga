@@ -188,6 +188,9 @@ class LiveMaskService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val image = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_XY
+            // Do not let view-level alpha reduce the opacity of the white mask.
+            alpha = 1f
+            imageAlpha = 255
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
@@ -205,7 +208,12 @@ class LiveMaskService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // Match MangaLensFR's known-good overlay setup: the window itself
+            // must be fully opaque; transparency comes only from bitmap pixels.
+            alpha = 1f
+        }
         windowManager?.addView(image, overlayParams)
 
         handlerThread = HandlerThread("LiveMaskCapture").also { it.start() }
