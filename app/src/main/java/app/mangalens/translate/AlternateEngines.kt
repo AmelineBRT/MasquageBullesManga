@@ -67,6 +67,132 @@ class MyMemoryEngine : TranslationEngine {
 }
 
 /**
+ * LibreTranslate community instances. No account, API key or billing setup is
+ * used. Public instances can rate-limit or disappear, so try a short list and
+ * let TranslationService continue to the next provider on failure.
+ */
+class LibreTranslateEngine : TranslationEngine {
+    override val label = "LibreTranslate · gratuit"
+
+    private val endpoints = listOf(
+        "translate.terraprint.co",
+        "translate.argosopentech.com",
+        "libretranslate.de",
+    )
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(7, TimeUnit.SECONDS)
+        .callTimeout(9, TimeUnit.SECONDS)
+        .build()
+
+    override suspend fun translate(items: List<String>, lang: SourceLang): List<String> =
+        withContext(Dispatchers.IO) {
+            if (items.isEmpty()) return@withContext emptyList()
+            var lastError: Exception? = null
+            for (host in endpoints) {
+                try {
+                    val payload = JSONObject()
+                        .put("q", org.json.JSONArray(items))
+                        .put("source", "auto")
+                        .put("target", "fr")
+                        .put("format", "text")
+                    val request = Request.Builder()
+                        .url("https://$host/translate")
+                        .header("Content-Type", "application/json")
+                        .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                    client.newCall(request).execute().use { resp ->
+                        val body = resp.body?.string().orEmpty()
+                        if (!resp.isSuccessful) throw RuntimeException("LibreTranslate HTTP ${resp.code}")
+                        val out = if (body.trimStart().startsWith("[")) {
+                            val arr = org.json.JSONArray(body)
+                            (0 until arr.length()).map { arr.optJSONObject(it)?.optString("translatedText").orEmpty() }
+                        } else {
+                            listOf(JSONObject(body).optString("translatedText"))
+                        }
+                        if (out.size != items.size || out.any { it.isBlank() }) {
+                            throw RuntimeException("Réponse LibreTranslate incomplète")
+                        }
+                        return@withContext out
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    lastError = e
+                }
+            }
+            throw RuntimeException(lastError?.message ?: "Aucune instance LibreTranslate disponible", lastError)
+        }
+}
+
+/**
+ * Lingva is a community-hosted, keyless web frontend for Google Translate.
+ * It is an independent fallback endpoint, not an official Google API; public
+ * instances may be rate-limited or unavailable.
+ */
+class LingvaEngine : TranslationEngine {
+    override val label = "Lingva · gratuit"
+
+    private val hosts = listOf("lingva.ml", "lingva.garudalinux.org")
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
+        .build()
+
+    override suspend fun translate(items: List<String>, lang: SourceLang): List<String> =
+        withContext(Dispatchers.IO) {
+            val out = ArrayList<String>(items.size)
+            for (source in items) {
+                if (source.isBlank()) {
+                    out.add("")
+                    continue
+                }
+                var translated: String? = null
+                var lastError: Exception? = null
+                val sourceCode = when (lang) {
+                    SourceLang.EN -> "en"
+                    SourceLang.KO -> "ko"
+                    SourceLang.JA -> "ja"
+                    SourceLang.ZH -> "zh"
+                    SourceLang.AUTO -> when {
+                        source.any { it.code in 0xAC00..0xD7AF } -> "ko"
+                        source.any { it.code in 0x3040..0x30FF } -> "ja"
+                        source.any { it.code in 0x4E00..0x9FFF } -> "zh"
+                        else -> "en"
+                    }
+                }
+                for (host in hosts) {
+                    try {
+                        val url = okhttp3.HttpUrl.Builder()
+                            .scheme("https")
+                            .host(host)
+                            .addPathSegment("api")
+                            .addPathSegment("v1")
+                            .addPathSegment(sourceCode)
+                            .addPathSegment("fr")
+                            .addPathSegment(source)
+                            .build()
+                        val request = Request.Builder().url(url).get().build()
+                        client.newCall(request).execute().use { resp ->
+                            val body = resp.body?.string().orEmpty()
+                            if (!resp.isSuccessful) throw RuntimeException("Lingva HTTP ${resp.code}")
+                            val value = JSONObject(body).optString("translation")
+                            if (value.isBlank()) throw RuntimeException("Réponse Lingva vide")
+                            translated = value
+                        }
+                        if (translated != null) break
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        lastError = e
+                    }
+                }
+                out.add(translated ?: throw RuntimeException(lastError?.message ?: "Lingva indisponible", lastError))
+            }
+            out
+        }
+}
+
+/**
  * DeepL API engine. A Free API key (usually ending in :fx) uses api-free;
  * other keys use the paid API host. The provider's own usage limits and billing
  * apply to the supplied key.
