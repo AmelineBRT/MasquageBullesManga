@@ -63,9 +63,9 @@ class ManualGlossaryStore(context: Context) {
             val from = entry.key.trim()
             if (from.isEmpty()) continue
             val marker = "MGLSKEEP${index}END"
-            val escaped = Regex.escape(from).replace("\\\\ ", "\\\\\\\\s+")
+            val escaped = Regex.escape(from)
             val pattern = Regex(
-                "(?<![\\\\p{L}\\\\p{N}])$escaped(?![\\\\p{L}\\\\p{N}])",
+                "(?<![\\p{L}\\p{N}])" + escaped + "(?![\\p{L}\\p{N}])",
                 RegexOption.IGNORE_CASE
             )
             if (pattern.containsMatchIn(text)) {
