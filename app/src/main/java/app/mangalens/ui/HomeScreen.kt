@@ -267,7 +267,7 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
         Column(Modifier.padding(16.dp)) {
             SectionTitle("Moteur de traduction")
             Spacer(Modifier.height(10.dp))
-            Text("Sans clé API · sans paiement direct (quotas possibles)", style = MaterialTheme.typography.bodyMedium)
+            Text("Gratuits sans clé ni carte : Google, MyMemory, LibreTranslate, Lingva et le moteur hors ligne. Les services en ligne peuvent limiter les requêtes.", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip("Google", settings.engine == EngineKind.GOOGLE) {
@@ -275,6 +275,12 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
                 }
                 Chip("MyMemory", settings.engine == EngineKind.MYMEMORY) {
                     scope.launch { repo.setEngine(EngineKind.MYMEMORY) }
+                }
+                Chip("LibreTranslate", settings.engine == EngineKind.LIBRETRANSLATE) {
+                    scope.launch { repo.setEngine(EngineKind.LIBRETRANSLATE) }
+                }
+                Chip("Lingva", settings.engine == EngineKind.LINGVA) {
+                    scope.launch { repo.setEngine(EngineKind.LINGVA) }
                 }
                 Chip("Hors ligne", settings.engine == EngineKind.MLKIT) {
                     scope.launch { repo.setEngine(EngineKind.MLKIT) }
@@ -301,7 +307,9 @@ private fun EngineCard(settings: AppSettings, repo: SettingsRepository) {
             Text(
                 when (settings.engine) {
                     EngineKind.GOOGLE -> "Sans clé. Si Google bloque temporairement les requêtes, MangaLens essaie MyMemory puis le moteur hors ligne."
-                    EngineKind.MYMEMORY -> "Service en ligne sans clé. Il a ses propres quotas et peut lui aussi être indisponible ; Google et le moteur hors ligne servent de secours."
+                    EngineKind.MYMEMORY -> "Service en ligne sans clé. Il a ses propres quotas et peut lui aussi être indisponible ; les autres moteurs gratuits servent de secours."
+                    EngineKind.LIBRETRANSLATE -> "Instances communautaires gratuites, sans clé ni compte. Elles peuvent être lentes, limitées ou indisponibles ; l’application essaie ensuite les autres moteurs gratuits."
+                    EngineKind.LINGVA -> "Service communautaire gratuit sans clé. Il peut être limité ou indisponible ; l’application essaie ensuite Google, MyMemory, LibreTranslate puis le moteur hors ligne."
                     EngineKind.MICROSOFT -> "Microsoft Translator officiel via Azure. Le compte Azure nécessite une clé et une région ; l’offre F0 inclut un quota mensuel gratuit. En cas d’échec, MangaLens essaie Google puis MyMemory."
                     EngineKind.DEEPL -> "DeepL API. Une clé est nécessaire ; une clé DeepL API Free peut bénéficier d’un quota gratuit. Sinon les tarifs et limites de ton compte s’appliquent. En cas d’échec, MangaLens essaie Google puis MyMemory."
                     EngineKind.LLM -> "L’IA lit les pages entières (y compris l’image) avec le contexte de l’histoire, un glossaire des noms, un ton naturel et les honorifiques. Une première traduction apparaît rapidement puis est améliorée. Une clé est nécessaire pour ce mode — celle de Gemini peut être gratuite."
