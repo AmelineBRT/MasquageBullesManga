@@ -170,10 +170,10 @@ object BalloonFinder {
      * Radii (work pixels) the ink is thickened by when hunting burst
      * balloons. Their border is a ring of radiating ticks, and the flood
      * leaks out through the gaps between them; thickening the ticks seals
-     * gaps up to twice the radius. Two radii cover the tick spacing shout
-     * balloons are drawn with at phone and at tablet resolution.
+     * gaps up to twice the radius. Three radii cover both fine and wider gaps between shout-balloon ticks,
+     * including stylized outlines that the smaller passes cannot fully close.
      */
-    private val BURST_SEAL_RADII = intArrayOf(2, 3)
+    private val BURST_SEAL_RADII = intArrayOf(2, 3, 4)
 
     /**
      * Fill floor for the sealed passes. Sealing eats the component's rim and
