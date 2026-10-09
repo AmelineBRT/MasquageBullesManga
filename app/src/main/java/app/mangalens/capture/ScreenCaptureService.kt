@@ -180,6 +180,7 @@ class ScreenCaptureService : Service(), OverlayController.Listener {
     private val pageReplay = PageReplayCache(4)
     // lazy: these need a Context, which a Service only has after construction
     private val glossary by lazy { GlossaryStore(this) }
+    private val manualGlossary by lazy { app.mangalens.translate.ManualGlossaryStore(this) }
     private val cast by lazy { CastBook(this) }
 
     /**
@@ -188,7 +189,7 @@ class ScreenCaptureService : Service(), OverlayController.Listener {
      * makes one story consistent then contradicts the next.
      */
     private val works by lazy { WorkMemory(this, glossary, cast) }
-    private val translation by lazy { TranslationService(cache, glossary, cast) }
+    private val translation by lazy { TranslationService(cache, glossary, cast, manualGlossary) }
     private val pipeline by lazy { TranslatePipeline(ocr, translation, cache, glossary, cast) }
 
     private val frameLock = Any()
