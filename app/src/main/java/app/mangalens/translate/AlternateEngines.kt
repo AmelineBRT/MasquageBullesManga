@@ -2,7 +2,6 @@ package app.mangalens.translate
 
 import app.mangalens.ocr.Script
 import app.mangalens.settings.SourceLang
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,7 +29,7 @@ class MyMemoryEngine : TranslationEngine {
     override suspend fun translate(items: List<String>, lang: SourceLang): List<String> =
         withContext(Dispatchers.IO) {
             items.map { source ->
-                if (source.isBlank() || Script.cjkCount(source) == 0) return@map source
+                if (source.isBlank()) return@map source
                 val url = HttpUrl.Builder()
                     .scheme("https")
                     .host("api.mymemory.translated.net")
@@ -46,8 +45,12 @@ class MyMemoryEngine : TranslationEngine {
                     if (root.optString("responseStatus") !in listOf("200", "202")) {
                         throw RuntimeException(root.optString("responseDetails", "MyMemory indisponible"))
                     }
-                    root.optJSONObject("responseData")?.optString("translatedText")
-                        ?.takeIf { it.isNotBlank() } ?: source
+                    val translated = root.optJSONObject("responseData")?.optString("translatedText")
+                        ?.takeIf { it.isNotBlank() } ?: throw RuntimeException("MyMemory n’a renvoyé aucune traduction")
+                    if (looksLikeUntranslatedEnglish(source, translated)) {
+                        throw RuntimeException("MyMemory a renvoyé le texte anglais sans le traduire")
+                    }
+                    translated
                 }
             }
         }
@@ -103,15 +106,28 @@ class LibreTranslateEngine : TranslationEngine {
                         .build()
                     client.newCall(request).execute().use { resp ->
                         val body = resp.body?.string().orEmpty()
-                        if (!resp.isSuccessful) throw RuntimeException("LibreTranslate HTTP ${resp.code}")
-                        val out = if (body.trimStart().startsWith("[")) {
-                            val arr = org.json.JSONArray(body)
-                            (0 until arr.length()).map { arr.optJSONObject(it)?.optString("translatedText").orEmpty() }
-                        } else {
-                            listOf(JSONObject(body).optString("translatedText"))
+                        if (!resp.isSuccessful) throw RuntimeException("LibreTranslate HTTP ${resp.code}: ${body.take(120)}")
+                        if (body.trimStart().startsWith("<") || body.contains("<!DOCTYPE", ignoreCase = true)) {
+                            throw RuntimeException("Le serveur LibreTranslate a renvoyé une page HTML au lieu du JSON attendu")
+                        }
+                        val root = runCatching { JSONObject(body) }.getOrElse {
+                            throw RuntimeException("Réponse LibreTranslate non JSON : ${body.take(100)}", it)
+                        }
+                        val translatedArray = root.optJSONArray("translatedText")
+                        val out = when {
+                            translatedArray != null -> (0 until translatedArray.length()).map { translatedArray.optString(it) }
+                            root.optString("translatedText").isNotBlank() -> listOf(root.optString("translatedText"))
+                            body.trimStart().startsWith("[") -> {
+                                val arr = org.json.JSONArray(body)
+                                (0 until arr.length()).map { arr.optJSONObject(it)?.optString("translatedText").orEmpty() }
+                            }
+                            else -> throw RuntimeException(root.optString("error", "Réponse LibreTranslate sans translatedText"))
                         }
                         if (out.size != items.size || out.any { it.isBlank() }) {
                             throw RuntimeException("Réponse LibreTranslate incomplète")
+                        }
+                        if (allMeaningfulResultsUntranslated(items, out)) {
+                            throw RuntimeException("LibreTranslate a renvoyé les textes sources sans les traduire")
                         }
                         return@withContext out
                     }
@@ -176,8 +192,14 @@ class LingvaEngine : TranslationEngine {
                         client.newCall(request).execute().use { resp ->
                             val body = resp.body?.string().orEmpty()
                             if (!resp.isSuccessful) throw RuntimeException("Lingva HTTP ${resp.code}")
+                            if (body.trimStart().startsWith("<") || body.contains("<!DOCTYPE", ignoreCase = true)) {
+                                throw RuntimeException("Lingva a renvoyé une page HTML au lieu du JSON attendu")
+                            }
                             val value = JSONObject(body).optString("translation")
                             if (value.isBlank()) throw RuntimeException("Réponse Lingva vide")
+                            if (looksLikeUntranslatedEnglish(source, value)) {
+                                throw RuntimeException("Lingva a renvoyé le texte anglais sans le traduire")
+                            }
                             translated = value
                         }
                         if (translated != null) break
@@ -278,4 +300,23 @@ class MicrosoftTranslatorEngine(
                 out
             }
         }
+}
+
+
+/** Detect a failed online translation without rejecting short names or expressions. */
+private fun looksLikeUntranslatedEnglish(source: String, translated: String): Boolean {
+    val original = source.trim().replace(Regex("\\s+"), " ")
+    val result = translated.trim().replace(Regex("\\s+"), " ")
+    return original.length >= 8 && original.equals(result, ignoreCase = true) &&
+        original.any { it in 'A'..'Z' || it in 'a'..'z' } && Script.cjkCount(original) == 0
+}
+
+private fun allMeaningfulResultsUntranslated(items: List<String>, results: List<String>): Boolean {
+    val candidates = items.zip(results).filter { (source, _) -> source.trim().length >= 8 &&
+        source.any { it in 'A'..'Z' || it in 'a'..'z' } && Script.cjkCount(source) == 0 }
+    return candidates.isNotEmpty() && candidates.all { (source, result) ->
+        source.trim().replace(Regex("\\s+"), " ").equals(
+            result.trim().replace(Regex("\\s+"), " "), ignoreCase = true
+        )
+    }
 }
