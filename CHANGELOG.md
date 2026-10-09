@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.4 — 2026-10-09
+- Added free, no-key LibreTranslate and Lingva providers.
+- Expanded fallback chain to try multiple free online engines before offline ML Kit.
+- Clarified that community endpoints can rate-limit or become unavailable; no card or billing setup is used for the free chain.
+
 ## 0.12.3
 
 - Rebased on the newer accessibility-bubble-recovery work so the latest translation engines, OCR filtering, reading order, cache, and settings are preserved.
