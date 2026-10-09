@@ -315,7 +315,7 @@ private fun looksLikeUntranslatedEnglish(source: String, translated: String): Bo
         original.any { it in 'A'..'Z' || it in 'a'..'z' } && Script.cjkCount(original) == 0
 }
 
-private fun allMeaningfulResultsUntranslated(items: List<String>, results: List<String>): Boolean {
+internal fun allMeaningfulResultsUntranslated(items: List<String>, results: List<String>): Boolean {
     val candidates = items.zip(results).filter { (source, _) -> source.trim().length >= 8 &&
         source.any { it in 'A'..'Z' || it in 'a'..'z' } && Script.cjkCount(source) == 0 }
     return candidates.isNotEmpty() && candidates.all { (source, result) ->
