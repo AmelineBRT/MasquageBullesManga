@@ -110,18 +110,19 @@ class LibreTranslateEngine : TranslationEngine {
                         if (body.trimStart().startsWith("<") || body.contains("<!DOCTYPE", ignoreCase = true)) {
                             throw RuntimeException("Le serveur LibreTranslate a renvoyé une page HTML au lieu du JSON attendu")
                         }
-                        val root = runCatching { JSONObject(body) }.getOrElse {
-                            throw RuntimeException("Réponse LibreTranslate non JSON : ${body.take(100)}", it)
-                        }
-                        val translatedArray = root.optJSONArray("translatedText")
-                        val out = when {
-                            translatedArray != null -> (0 until translatedArray.length()).map { translatedArray.optString(it) }
-                            root.optString("translatedText").isNotBlank() -> listOf(root.optString("translatedText"))
-                            body.trimStart().startsWith("[") -> {
-                                val arr = org.json.JSONArray(body)
-                                (0 until arr.length()).map { arr.optJSONObject(it)?.optString("translatedText").orEmpty() }
+                        val out = if (body.trimStart().startsWith("[")) {
+                            val arr = org.json.JSONArray(body)
+                            (0 until arr.length()).map { arr.optString(it) }
+                        } else {
+                            val root = runCatching { JSONObject(body) }.getOrElse {
+                                throw RuntimeException("Réponse LibreTranslate non JSON : ${body.take(100)}", it)
                             }
-                            else -> throw RuntimeException(root.optString("error", "Réponse LibreTranslate sans translatedText"))
+                            val translatedArray = root.optJSONArray("translatedText")
+                            when {
+                                translatedArray != null -> (0 until translatedArray.length()).map { translatedArray.optString(it) }
+                                root.optString("translatedText").isNotBlank() -> listOf(root.optString("translatedText"))
+                                else -> throw RuntimeException(root.optString("error", "Réponse LibreTranslate sans translatedText"))
+                            }
                         }
                         if (out.size != items.size || out.any { it.isBlank() }) {
                             throw RuntimeException("Réponse LibreTranslate incomplète")
