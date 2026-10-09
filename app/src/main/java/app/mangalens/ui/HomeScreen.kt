@@ -65,6 +65,7 @@ import app.mangalens.translate.DeepLEngine
 import app.mangalens.translate.MyMemoryEngine
 import app.mangalens.translate.LlmEngine
 import app.mangalens.translate.MlKitEngine
+import app.mangalens.translate.ManualGlossaryStore
 import app.mangalens.translate.ModelCatalog
 import app.mangalens.translate.MicrosoftTranslatorEngine
 import app.mangalens.update.UpdateChecker
@@ -123,6 +124,8 @@ fun HomeScreen(
                 Spacer(Modifier.height(14.dp))
             }
             EngineCard(settings, repo)
+            Spacer(Modifier.height(14.dp))
+            ManualGlossaryCard()
             Spacer(Modifier.height(14.dp))
             LectureCard(settings, repo)
             Spacer(Modifier.height(14.dp))
@@ -640,6 +643,87 @@ private fun LabeledSlider(
             valueRange = range,
             onValueChangeFinished = { onCommit(v) }
         )
+    }
+}
+
+@Composable
+private fun ManualGlossaryCard() {
+    val context = LocalContext.current
+    val store = remember(context) { ManualGlossaryStore(context) }
+    var source by remember { mutableStateOf("") }
+    var french by remember { mutableStateOf("") }
+    var terms by remember { mutableStateOf(store.snapshot()) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            SectionTitle("Glossaire personnalisé")
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Ajoute les noms, titres et expressions qui doivent toujours garder ta traduction. Les termes sont protégés avant l’envoi au traducteur, puis remis en français. Exemple : Miss → Madame. Cela fonctionne avec tous les moteurs.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = source,
+                onValueChange = { source = it; error = null },
+                label = { Text("Terme dans le texte anglais") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = french,
+                onValueChange = { french = it; error = null },
+                label = { Text("Traduction à conserver en français") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    runCatching { store.put(source, french) }
+                        .onSuccess {
+                            terms = store.snapshot()
+                            source = ""
+                            french = ""
+                            error = null
+                        }
+                        .onFailure { error = it.message ?: "Impossible d’enregistrer ce terme." }
+                },
+                enabled = source.isNotBlank() && french.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Ajouter / enregistrer le terme") }
+            error?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (terms.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text("Termes enregistrés (${terms.size})", fontWeight = FontWeight.SemiBold)
+                terms.entries.sortedBy { it.key.lowercase() }.forEach { entry ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.key, fontWeight = FontWeight.Medium)
+                            Text("→ ${entry.value}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(
+                            "Supprimer",
+                            modifier = Modifier.clickable {
+                                store.remove(entry.key)
+                                terms = store.snapshot()
+                            }.padding(8.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
