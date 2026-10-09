@@ -27,7 +27,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.mangalens"
+        applicationId = "fr.amelinebrt.masquagebullesmanga"
         minSdk = 26
         targetSdk = 35
         versionCode = 48
