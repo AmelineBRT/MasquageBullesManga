@@ -27,7 +27,7 @@ internal object BubbleMaskDetector {
     private const val MODEL_URL =
         "https://huggingface.co/mednasserallah/manga109-segmentation-bubble-onnx/resolve/main/manga109_segmentation_bubble_1024.onnx"
 
-    data class Result(val bitmap: Bitmap, val bubbleCount: Int, val elapsedMs: Long)
+    data class Result(val bitmap: Bitmap, val overlayBitmap: Bitmap, val bubbleCount: Int, val elapsedMs: Long)
 
     private interface BoxLike {
         val left: Float
@@ -95,7 +95,7 @@ internal object BubbleMaskDetector {
             options.close()
         }
 
-        val maskGrid = BooleanArray(MODEL_SIZE * MODEL_SIZE)
+        val finalMask = BooleanArray(MODEL_SIZE * MODEL_SIZE)
         var detectedCount = 0
         try {
             val inputName = session.inputNames.first()
@@ -143,6 +143,7 @@ internal object BubbleMaskDetector {
                         val right = min(PROTO_SIZE - 1, (box.right / 4f).toInt())
                         val bottom = min(PROTO_SIZE - 1, (box.bottom / 4f).toInt())
                         if (right <= left || bottom <= top) continue
+                        val candidateMask = BooleanArray(MODEL_SIZE * MODEL_SIZE)
                         val coeff = FloatArray(CHANNELS) { c -> feature[5 + c][box.index] }
                         var maskPixels = 0
                         for (py in top..bottom) {
@@ -160,7 +161,7 @@ internal object BubbleMaskDetector {
                                         for (dx in 0..3) {
                                             val xx = x0 + dx
                                             if (xx in 0 until MODEL_SIZE) {
-                                                maskGrid[offset + xx] = true
+                                                candidateMask[offset + xx] = true
                                                 maskPixels++
                                             }
                                         }
@@ -168,7 +169,16 @@ internal object BubbleMaskDetector {
                                 }
                             }
                         }
-                        if (maskPixels > 30) detectedCount++
+                        if (maskPixels > 30) {
+                            detectedCount++
+                            // Tighten each instance independently before combining masks.
+                            // This prevents a neighbouring prediction from keeping stray
+                            // pixels alive during erosion.
+                            val tightenedCandidate = erodeMask(candidateMask, radius = 3)
+                            for (pixel in tightenedCandidate.indices) {
+                                if (tightenedCandidate[pixel]) finalMask[pixel] = true
+                            }
+                        }
                     }
                 }
             }
@@ -176,9 +186,8 @@ internal object BubbleMaskDetector {
             session.close()
         }
 
-        // Contract the segmentation slightly so the white fill stays inside the
-        // balloon outline instead of covering the black border and nearby artwork.
-        val tightenedMask = erodeMask(maskGrid, radius = 3)
+        // Candidate masks were contracted independently before being combined.
+        val tightenedMask = finalMask
 
         val original = IntArray(width * height)
         source.getPixels(original, 0, width, 0, 0, width, height)
@@ -193,7 +202,24 @@ internal object BubbleMaskDetector {
         }
         val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         result.setPixels(original, 0, width, 0, 0, width, height)
-        return Result(result, detectedCount, System.currentTimeMillis() - started)
+
+        // Transparent overlay for live screen mode: only masked pixels are white,
+        // all other pixels let the manga app underneath remain visible and interactive.
+        val overlayPixels = IntArray(width * height)
+        for (y in 0 until height) {
+            val modelY = (y * scale + padTop).toInt().coerceIn(0, MODEL_SIZE - 1)
+            val sourceRow = y * width
+            val modelRow = modelY * MODEL_SIZE
+            for (x in 0 until width) {
+                val modelX = (x * scale + padLeft).toInt().coerceIn(0, MODEL_SIZE - 1)
+                if (tightenedMask[modelRow + modelX]) {
+                    overlayPixels[sourceRow + x] = Color.WHITE
+                }
+            }
+        }
+        val overlay = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        overlay.setPixels(overlayPixels, 0, width, 0, 0, width, height)
+        return Result(result, overlay, detectedCount, System.currentTimeMillis() - started)
     }
 
     /**
