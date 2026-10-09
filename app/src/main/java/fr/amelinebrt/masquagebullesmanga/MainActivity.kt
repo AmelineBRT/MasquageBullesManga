@@ -1,6 +1,5 @@
 package fr.amelinebrt.masquagebullesmanga
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -17,25 +16,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -43,9 +43,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MangaMaskTestScreen()
-                }
+                Surface(modifier = Modifier.fillMaxSize()) { MangaMaskTestScreen() }
             }
         }
     }
@@ -53,35 +51,30 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun MangaMaskTestScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var sourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var resultBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var status by remember { mutableStateOf("Choisis une page de manga pour commencer.") }
+    var isBusy by remember { mutableStateOf(false) }
+    var bubbleCount by remember { mutableIntStateOf(0) }
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
+            resultBitmap = null
             status = "Chargement de l'image…"
-            // The image is decoded off the UI thread by the effect below.
-            sourceUriState.value = uri
-        }
-    }
-
-    val uriState = sourceUriState
-    val context = androidx.compose.ui.platform.LocalContext.current
-    LaunchedEffect(uriState.value) {
-        val uri = uriState.value ?: return@LaunchedEffect
-        sourceBitmap = withContext(Dispatchers.IO) {
-            try {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    BitmapFactory.decodeStream(input)
+            scope.launch {
+                sourceBitmap = withContext(Dispatchers.IO) {
+                    try {
+                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    } catch (_: Exception) { null }
                 }
-            } catch (_: Exception) {
-                null
+                status = if (sourceBitmap != null) "Image chargée. Appuie sur « Détecter et masquer »."
+                else "Impossible de lire cette image. Essaie un fichier JPG ou PNG."
             }
-        }
-        status = if (sourceBitmap != null) {
-            "Image chargée. Le moteur de détection sera branché ici ; aucun texte n'est reconnu ni traduit dans cette application."
-        } else {
-            "Impossible de lire cette image. Essaie un fichier JPG ou PNG."
         }
     }
 
@@ -90,21 +83,48 @@ private fun MangaMaskTestScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Masquage Bulles Manga", style = MaterialTheme.typography.headlineSmall)
-        Text("Banc d'essai indépendant : détection des bulles et remplissage blanc opaque, sans OCR ni traduction.")
-        Button(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
+        Text("Banc d'essai indépendant : segmentation locale des bulles et remplissage blanc opaque. Aucun OCR, aucune traduction.")
+        Button(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !isBusy) {
             Text("Choisir une page")
+        }
+        if (sourceBitmap != null) {
+            Button(
+                onClick = {
+                    val input = sourceBitmap ?: return@Button
+                    isBusy = true
+                    status = "Préparation du modèle… au premier lancement, téléchargement d'environ 12 Mo."
+                    scope.launch {
+                        try {
+                            val result = withContext(Dispatchers.Default) { BubbleMaskDetector.run(context, input) }
+                            resultBitmap = result.bitmap
+                            bubbleCount = result.bubbleCount
+                            elapsedMs = result.elapsedMs
+                            status = "Terminé : ${result.bubbleCount} régions masquées en ${result.elapsedMs} ms."
+                        } catch (e: Exception) {
+                            status = "Échec : ${e.message ?: e.javaClass.simpleName}"
+                        } finally {
+                            isBusy = false
+                        }
+                    }
+                },
+                enabled = !isBusy
+            ) { Text("Détecter et masquer") }
+        }
+        if (isBusy) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator()
+                Text("Détection en cours… le modèle est conservé sur le téléphone après le premier téléchargement.")
+            }
         }
         Text(status, style = MaterialTheme.typography.bodyMedium)
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Image source", style = MaterialTheme.typography.titleMedium)
                 if (sourceBitmap == null) {
                     Box(
                         modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).background(Color(0xFFF1F1F1)),
                         contentAlignment = Alignment.Center
-                    ) {
-                        Text("Aucune image sélectionnée")
-                    }
+                    ) { Text("Aucune image sélectionnée") }
                 } else {
                     Image(
                         bitmap = sourceBitmap!!.asImageBitmap(),
@@ -118,12 +138,19 @@ private fun MangaMaskTestScreen() {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Résultat du masquage", style = MaterialTheme.typography.titleMedium)
-                Text("En attente d'un modèle de détection validé.")
-                Text("Objectif : blanc 100 % opaque, sans laisser transparaître les caractères d'origine.")
+                if (resultBitmap == null) Text("Le résultat apparaîtra ici après la détection.")
+                else {
+                    Text("$bubbleCount régions détectées · $elapsedMs ms")
+                    Image(
+                        bitmap = resultBitmap!!.asImageBitmap(),
+                        contentDescription = "Résultat avec masquage blanc opaque",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 640.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                    Text("Vérifie surtout les bulles oubliées et les zones de dessin masquées par erreur.")
+                }
             }
         }
-        Text("Étape actuelle : interface de test. La détection automatique n'est pas encore activée.", style = MaterialTheme.typography.bodySmall)
+        Text("Le modèle vise les bulles de dialogue. Les bulles sombres, les trames complexes et les formes inhabituelles peuvent encore être manquées ; le résultat doit être vérifié sur de vraies pages.", style = MaterialTheme.typography.bodySmall)
     }
 }
-
-private val sourceUriState = mutableStateOf<Uri?>(null)
