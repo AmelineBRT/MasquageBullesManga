@@ -71,22 +71,12 @@ signature.
 
 ## Translation engines
 
-| Engine | Quality | Speed | Setup | Notes |
-|---|---|---|---|---|
-| **Free · Google** *(default)* | ★★★☆ | fast | none | Whole page in one batched request for cross-line context; junk-gated so OCR noise is never rendered. |
-| **AI Pro ✨** | ★★★★★ | instant draft, polish in ~2–5 s | API key | The scanlation-grade mode. A fast draft paints immediately, then the AI result replaces it in place — slow internet never blocks reading. **AI Vision** sends the raw page image so the model reads vertical Japanese and stylized lettering itself (Auto: only where on-device OCR struggles; Korean webtoons use tiny text-only requests). Rolling story context + a **persistent glossary** keep names, honorifics and running jokes consistent forever. Claude (Anthropic) recommended; OpenAI, Gemini, OpenRouter and any OpenAI-compatible endpoint work. **Gemini has a free tier** (aistudio.google.com/apikey — the app links you there), and a one-tap picker fetches Google's **live model list** so the newest Flash models are always offered, no app update needed. Falls back to Google automatically. |
-| **Offline** | ★★☆☆ | fast | one-time ~30 MB model per language | ML Kit on-device translation. Works with zero network. |
-
-Privacy: in AI **text** mode only bubble text leaves the device; in AI
-**Vision** mode the page image goes to the provider you chose — and nowhere
-else. The free and offline engines never send an image anywhere. Screen
-capture and OCR always run on-device. Each AI provider has its own API-key and
-model setting; switching providers never reuses one provider's credential with
-another. OpenRouter has a dedicated key field and an in-app link to
-`openrouter.ai/settings/keys`. API keys live in Android's no-backup storage;
-ordinary preferences can transfer to a new device, but credentials must be
-entered again.
-
+Free no-key fallback chain: Google Translate web endpoint → MyMemory → community
+LibreTranslate instances → Lingva community instances → ML Kit offline. Public
+online services are not guaranteed unlimited and may throttle or disappear;
+ML Kit is the only included option that works without an online provider once
+its language model has been downloaded. No payment method is required for this
+free chain.
 ## How it works
 
 ```
