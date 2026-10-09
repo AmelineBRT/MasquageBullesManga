@@ -20,9 +20,7 @@ class ManualGlossaryStoreTest {
 
         val protected = store.protect("Miss Alice, I missed the train.")
         assertFalse(protected.text.contains("Miss Alice"))
-        assertEquals("Madame Alice, I missed the train.", store.restore(
-            protected.text.replace("Alice", "Alice"), protected
-        ))
+        assertEquals("Madame Alice, I missed the train.", store.restore(protected.text, protected))
     }
 
     @Test
