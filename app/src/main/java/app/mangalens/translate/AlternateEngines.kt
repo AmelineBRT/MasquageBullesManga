@@ -77,15 +77,22 @@ class MyMemoryEngine : TranslationEngine {
 class LibreTranslateEngine : TranslationEngine {
     override val label = "LibreTranslate · gratuit"
 
+    // Public instances are volunteer-run and can be blocked or disappear.
+    // Try several mirrors, with short per-host timeouts so a dead mirror does
+    // not hold up the rest of the translation fallback chain.
     private val endpoints = listOf(
+        "translate.cutie.dating",
+        "translate.lotigara.ru",
+        "trans.zillyhuhn.com",
+        "translate.api.skitzen.com",
         "translate.terraprint.co",
         "translate.argosopentech.com",
         "libretranslate.de",
     )
     private val client = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(7, TimeUnit.SECONDS)
-        .callTimeout(9, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .callTimeout(4, TimeUnit.SECONDS)
         .build()
 
     override suspend fun translate(items: List<String>, lang: SourceLang): List<String> =
@@ -152,11 +159,21 @@ class LibreTranslateEngine : TranslationEngine {
 class LingvaEngine : TranslationEngine {
     override val label = "Lingva · gratuit"
 
-    private val hosts = listOf("lingva.ml", "lingva.garudalinux.org")
+    // These are public community mirrors, not guaranteed services. The
+    // short timeout lets the engine move on quickly when a mirror blocks API use.
+    private val hosts = listOf(
+        "translate.igna.wtf",
+        "translate.plausibility.cloud",
+        "translate.projectsegfau.lt",
+        "translate.dr460nf1r3.org",
+        "translate.jae.fi",
+        "lingva.garudalinux.org",
+        "lingva.ml",
+    )
     private val client = OkHttpClient.Builder()
         .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .callTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .callTimeout(4, TimeUnit.SECONDS)
         .build()
 
     override suspend fun translate(items: List<String>, lang: SourceLang): List<String> =
