@@ -120,7 +120,7 @@ internal object BubbleMaskDetector {
                     val count = feature[4].size
                     for (i in 0 until count) {
                         val score = feature[4][i]
-                        if (score >= 0.30f) {
+                        if (score >= 0.20f) { // Lower threshold to recover smaller/less confident balloons.
                             val w = feature[2][i]
                             val h = feature[3][i]
                             if (w > 2f && h > 2f) {
@@ -178,7 +178,7 @@ internal object BubbleMaskDetector {
 
         // Contract the segmentation slightly so the white fill stays inside the
         // balloon outline instead of covering the black border and nearby artwork.
-        val tightenedMask = erodeMask(maskGrid, radius = 2)
+        val tightenedMask = erodeMask(maskGrid, radius = 3)
 
         val original = IntArray(width * height)
         source.getPixels(original, 0, width, 0, 0, width, height)
