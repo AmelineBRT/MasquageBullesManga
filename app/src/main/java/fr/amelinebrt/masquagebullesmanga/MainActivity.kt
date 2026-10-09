@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.app.Activity
 import android.content.Intent
+import android.content.Context
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
