@@ -1,38 +1,114 @@
+import java.net.URL
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val downloadMangaFont = tasks.register("downloadMangaFont") {
+    val out = file("src/main/res/font/mochiy_pop_one.ttf")
+    outputs.file(out)
+    doLast {
+        if (!out.exists() || out.length() < 1000000L) {
+            out.parentFile.mkdirs()
+            URL("https://raw.githubusercontent.com/fontdasu/Mochiypop/master/fonts/ttf/MochiyPopOne-Regular.ttf")
+                .openStream().use { input ->
+                    out.outputStream().use { output -> input.copyTo(output) }
+                }
+        }
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn(downloadMangaFont) }
+
 android {
-    namespace = "fr.amelinebrt.masquagebullesmanga"
+    namespace = "app.mangalens"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "fr.amelinebrt.masquagebullesmanga"
+        applicationId = "app.mangalens"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 45
+        versionName = "0.12.0"
+
+        ndk {
+            // Every modern tablet is arm64; dropping the other ABIs takes the
+            // APK from ~114 MB to a fraction. Add "armeabi-v7a" for pre-2016 devices.
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
-    buildFeatures { compose = true }
+    signingConfigs {
+        // Committed keystore so debug sideloads always match signatures.
+        // It is public and protects nothing — release builds must not use it.
+        getByName("debug") {
+            storeFile = rootProject.file("signing/debug.keystore")
+            storePassword = "mangalens"
+            keyAlias = "mangalens"
+            keyPassword = "mangalens"
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        release {
+            isMinifyEnabled = false
+            // Always leave this artifact unsigned. The release workflow
+            // validates the private keystore, zipaligns the APK, and signs it
+            // explicitly; a bare checkout can never impersonate a release.
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+    }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    }
+    testOptions {
+        unitTests {
+            // Reading order and utterance linking are pure geometry over
+            // android.graphics.Rect, so the tests need real framework classes
+            // rather than the stub jar's "not mocked" methods.
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
-    implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // On-device OCR for Latin and the three CJK scripts (models bundled in the APK)
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    // Optional fully-offline translation engine
+    implementation("com.google.mlkit:translate:17.0.3")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
