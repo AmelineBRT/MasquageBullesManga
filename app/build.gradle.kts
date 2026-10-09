@@ -30,8 +30,8 @@ android {
         applicationId = "fr.amelinebrt.masquagebullesmanga"
         minSdk = 26
         targetSdk = 35
-        versionCode = 50
-        versionName = "0.12.5"
+        versionCode = 51
+        versionName = "0.12.6"
 
         ndk {
             // Every modern tablet is arm64; dropping the other ABIs takes the
