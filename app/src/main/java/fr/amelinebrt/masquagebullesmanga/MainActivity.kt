@@ -65,6 +65,7 @@ private fun MangaMaskTestScreen() {
     var isBusy by remember { mutableStateOf(false) }
     var bubbleCount by remember { mutableIntStateOf(0) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
+    var liveModeStarted by remember { mutableStateOf(false) }
 
     val liveCaptureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -78,6 +79,7 @@ private fun MangaMaskTestScreen() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent)
             else context.startService(serviceIntent)
             status = "Masquage en direct lancé. Retourne dans ton application de manga et fais défiler ; le masque se met à jour après une courte pause."
+            liveModeStarted = true
         } else {
             status = "Capture annulée. Aucun écran n'a été capturé."
         }
@@ -128,6 +130,21 @@ private fun MangaMaskTestScreen() {
         }
         Text(
             "Mode expérimental : autorise la capture d'écran Android, puis retourne dans ton lecteur de manga. Le masquage attend une courte pause du défilement ; le traitement peut prendre un peu de temps.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Button(
+            onClick = {
+                val testIntent = Intent(context, LiveMaskService::class.java).setAction(LiveMaskService.ACTION_TEST_OPACITY)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(testIntent)
+                else context.startService(testIntent)
+                status = "Test lancé : retourne tout de suite dans ton manga. Dans 3 secondes, le masque deviendra entièrement blanc pendant environ 2 secondes."
+            },
+            enabled = liveModeStarted
+        ) {
+            Text("Tester le blanc opaque (test visible)")
+        }
+        Text(
+            "Pour tester par-dessus le manga : reviens ici, appuie sur le bouton ci-dessus, puis retourne rapidement dans le lecteur. Le blanc apparaît après 3 secondes.",
             style = MaterialTheme.typography.bodySmall
         )
         Button(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !isBusy) {
