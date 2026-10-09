@@ -1,7 +1,7 @@
-# MangaLens 文A
+# Masquage Bulles Manga — version de test
 
-[![build](https://github.com/AmelineBRT/MangaLensFR/actions/workflows/build.yml/badge.svg)](https://github.com/AmelineBRT/MangaLensFR/actions/workflows/build.yml)
-[![release](https://img.shields.io/github/v/release/AmelineBRT/MangaLensFR?label=release)](https://github.com/AmelineBRT/MangaLensFR/releases/latest)
+[![build](https://github.com/AmelineBRT/MasquageBullesManga/actions/workflows/build.yml/badge.svg)](https://github.com/AmelineBRT/MasquageBullesManga/actions/workflows/build.yml)
+[![release](https://img.shields.io/github/v/release/AmelineBRT/MasquageBullesManga?label=release)](https://github.com/AmelineBRT/MasquageBullesManga/releases/latest)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Traduction en direct à l’écran des manhwa, manga et manhua sur Android.**
@@ -11,9 +11,9 @@ bubbles, OCRs the Korean / Japanese / Chinese text on-device, translates it to
 natural French, and paints clean patches right over the bubbles — hands-free.
 Scroll and they vanish; stop and the next page translates itself.
 
-**[⤓ Télécharger la dernière APK](https://github.com/AmelineBRT/MangaLensFR/releases/latest/download/MangaLens.apk)**
+**[⤓ Télécharger la dernière APK](https://github.com/AmelineBRT/MasquageBullesManga/releases/latest/download/MangaLens.apk)**
 · [website](https://mkisontop.github.io/MangaLens/)
-· [toutes les versions](https://github.com/AmelineBRT/MangaLensFR/releases)
+· [toutes les versions](https://github.com/AmelineBRT/MasquageBullesManga/releases)
 · [changelog](CHANGELOG.md)
 
 Current release: **0.10.2**. Still on 0.9.1? Follow the
@@ -37,7 +37,7 @@ now, pause, peek at the original art, tap-to-translate mode, settings, stop).
 
 ## Install
 
-1. Download **[MangaLens.apk](https://github.com/AmelineBRT/MangaLensFR/releases/latest/download/MangaLens.apk)**
+1. Download **[MangaLens.apk](https://github.com/AmelineBRT/MasquageBullesManga/releases/latest/download/MangaLens.apk)**
    — that link always serves the newest release. Every release ships a
    `checksums.txt` if you want to verify the download.
 2. Open it on your phone or tablet → allow installing from unknown sources
@@ -56,7 +56,7 @@ correctly refuses to replace an installed app with one carrying an unrelated
 signature.
 
 - **Android 9 or newer, with 0.9.1 installed:** install
-  **[MangaLens-legacy-update.apk](https://github.com/AmelineBRT/MangaLensFR/releases/latest/download/MangaLens-legacy-update.apk)**
+  **[MangaLens-legacy-update.apk](https://github.com/AmelineBRT/MasquageBullesManga/releases/latest/download/MangaLens-legacy-update.apk)**
   once. It carries Android's signed debug→release key lineage, updates in
   place without clearing MangaLens data, and moves the installation onto the
   private release key. Use the normal `MangaLens.apk` for every update after
