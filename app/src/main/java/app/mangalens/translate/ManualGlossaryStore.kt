@@ -41,6 +41,7 @@ class ManualGlossaryStore(context: Context) {
             "Chaque terme est limité à $MAX_TERM_LENGTH caractères."
         }
         val terms = snapshot().toMutableMap()
+        terms.keys.filter { it.equals(from, ignoreCase = true) }.forEach { terms.remove(it) }
         terms[from] = to
         persist(terms)
     }
@@ -48,7 +49,7 @@ class ManualGlossaryStore(context: Context) {
     @Synchronized
     fun remove(source: String) {
         val terms = snapshot().toMutableMap()
-        terms.remove(source)
+        terms.keys.filter { it.equals(source, ignoreCase = true) }.forEach { terms.remove(it) }
         persist(terms)
     }
 
