@@ -287,7 +287,16 @@ object BalloonFinder {
         for (r in BURST_SEAL_RADII) {
             val sealed = dilate(ink, w, h, r)
             val sealedOpen = BooleanArray(n) { open[it] && !sealed[it] }
-            add(sweep(Pass(sealedOpen, dark, flatMid, BURST_MIN_FILL, inverted = false, allowEdge = r == BURST_SEAL_RADII[0]), geom))
+            add(sweep(
+                Pass(
+                    sealedOpen, dark, flatMid,
+                    minFill = if (r >= 4) 0.60f else BURST_MIN_FILL,
+                    inverted = false,
+                    allowEdge = r == BURST_SEAL_RADII[0],
+                    maxArt = if (r >= 4) 0.06f else MAX_ART,
+                ),
+                geom
+            ))
         }
 
         // Pastel balloons: the interior threshold relaxes to catch pink and
@@ -383,6 +392,8 @@ object BalloonFinder {
         val inverted: Boolean,
         /** Whether a component cut by the frame edge may be reported as partial. */
         val allowEdge: Boolean,
+        /** Wider sealing is more prone to mistaking shaded panel art for a bubble. */
+        val maxArt: Float = MAX_ART,
     )
 
     private class Geometry(
@@ -531,7 +542,7 @@ object BalloonFinder {
         }
         val inkFraction = ink.toFloat() / filled
         if (inkFraction < MIN_INK || inkFraction > MAX_INK) return false
-        if (art.toFloat() / filled > MAX_ART) return false
+        if (art.toFloat() / filled > pass.maxArt) return false
 
         val full = pageRect(minX, minY, boxW, boxH, g)
         if (full.bottom <= g.ignoreTopPx || full.top >= g.bitmap.height - g.ignoreBottomPx) return false
