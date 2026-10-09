@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -54,7 +53,6 @@ class LiveMaskService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var overlayView: ImageView? = null
-    private var opacityTestView: View? = null
     private var windowManager: WindowManager? = null
     private var handlerThread: HandlerThread? = null
     private var workerHandler: Handler? = null
@@ -65,7 +63,6 @@ class LiveMaskService : Service() {
     private var frameVersion = 0L
     private var lastSampleAt = 0L
     private var lastOverlayBitmap: Bitmap? = null
-    @Volatile private var opacityTestUntil = 0L
 
     private val detectRunnable: Runnable = Runnable {
         val snapshot = synchronized(this) {
@@ -114,11 +111,6 @@ class LiveMaskService : Service() {
 
     private val imageListener: ImageReader.OnImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
         val now = System.currentTimeMillis()
-        if (now < opacityTestUntil) {
-            val skipped = reader.acquireLatestImage()
-            skipped?.close()
-            return@OnImageAvailableListener
-        }
         if (now - lastSampleAt < 250L) {
             val skipped = reader.acquireLatestImage()
             skipped?.close()
@@ -159,7 +151,15 @@ class LiveMaskService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_TEST_OPACITY) {
-            showOpacityTest()
+            sendBroadcast(
+                Intent(AccessibilityOpacityTestService.ACTION_TEST_OPACITY)
+                    .setPackage(packageName)
+            )
+            Toast.makeText(
+                this,
+                "Test avancé envoyé. Vérifie que le service d'accessibilité de test est activé.",
+                Toast.LENGTH_LONG
+            ).show()
             return START_STICKY
         }
         if (projection != null) return START_STICKY
@@ -285,51 +285,6 @@ class LiveMaskService : Service() {
         return hash
     }
 
-    /**
-     * Shows a second, independent diagnostic window using PixelFormat.OPAQUE.
-     * This deliberately bypasses the ImageView/bitmap path so we can tell whether
-     * translucency comes from the bitmap pipeline or from Android's overlay window.
-     */
-    private fun showOpacityTest() {
-        val anchor = overlayView ?: return
-        val wm = windowManager ?: return
-        opacityTestUntil = System.currentTimeMillis() + 5000L
-        anchor.postDelayed({
-            if (overlayView !== anchor || windowManager !== wm) return@postDelayed
-            val testView = View(this).apply {
-                setBackgroundColor(Color.WHITE)
-                alpha = 1f
-            }
-            val testParams = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.OPAQUE
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                alpha = 1f
-            }
-            try {
-                wm.addView(testView, testParams)
-                opacityTestView = testView
-                testView.postDelayed({
-                    try { wm.removeView(testView) } catch (_: Exception) {}
-                    if (opacityTestView === testView) opacityTestView = null
-                }, 1800L)
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this,
-                    "Test de fenêtre opaque impossible : ${e.message ?: "erreur"}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }, 3000L)
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -386,8 +341,6 @@ class LiveMaskService : Service() {
         try { imageReader?.setOnImageAvailableListener(null, null) } catch (_: Exception) {}
         try { imageReader?.close() } catch (_: Exception) {}
         try { projection?.stop() } catch (_: Exception) {}
-        try { opacityTestView?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
-        opacityTestView = null
         try { overlayView?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
         synchronized(this) {
             latestFrame?.recycle()
