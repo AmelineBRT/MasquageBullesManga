@@ -131,7 +131,7 @@ internal object BubbleMaskDetector {
                     candidates.sortByDescending { it.score }
                     val selected = ArrayList<Box>()
                     for (candidate in candidates) {
-                        if (selected.none { iou(it, candidate) > 0.50f }) {
+                        if (selected.none { iou(it, candidate) > 0.65f }) {
                             selected.add(candidate)
                             if (selected.size >= 80) break
                         }
@@ -174,7 +174,14 @@ internal object BubbleMaskDetector {
                             // Tighten each instance independently before combining masks.
                             // This prevents a neighbouring prediction from keeping stray
                             // pixels alive during erosion.
-                            val tightenedCandidate = erodeMask(candidateMask, radius = 3)
+                            val tightenedCandidate = erodeMask(
+                                candidateMask,
+                                radius = 3,
+                                leftBound = left * 4,
+                                topBound = top * 4,
+                                rightBound = min(MODEL_SIZE - 1, right * 4 + 3),
+                                bottomBound = min(MODEL_SIZE - 1, bottom * 4 + 3)
+                            )
                             for (pixel in tightenedCandidate.indices) {
                                 if (tightenedCandidate[pixel]) finalMask[pixel] = true
                             }
@@ -226,14 +233,26 @@ internal object BubbleMaskDetector {
      * Removes a narrow border from the predicted mask. A separable square erosion
      * is used to keep the outline inside the balloon and reduce spill into nearby art.
      */
-    private fun erodeMask(mask: BooleanArray, radius: Int): BooleanArray {
+    private fun erodeMask(
+        mask: BooleanArray,
+        radius: Int,
+        leftBound: Int = 0,
+        topBound: Int = 0,
+        rightBound: Int = MODEL_SIZE - 1,
+        bottomBound: Int = MODEL_SIZE - 1
+    ): BooleanArray {
         if (radius <= 0) return mask
         val horizontal = BooleanArray(mask.size)
         val result = BooleanArray(mask.size)
+        val left = max(radius, leftBound)
+        val top = max(radius, topBound)
+        val right = min(MODEL_SIZE - radius - 1, rightBound)
+        val bottom = min(MODEL_SIZE - radius - 1, bottomBound)
+        if (right - left < radius * 2 || bottom - top < radius * 2) return result
 
-        for (y in 0 until MODEL_SIZE) {
+        for (y in top..bottom) {
             val row = y * MODEL_SIZE
-            for (x in radius until MODEL_SIZE - radius) {
+            for (x in left..right) {
                 var keep = true
                 for (dx in -radius..radius) {
                     if (!mask[row + x + dx]) {
@@ -245,9 +264,9 @@ internal object BubbleMaskDetector {
             }
         }
 
-        for (y in radius until MODEL_SIZE - radius) {
+        for (y in top..bottom) {
             val row = y * MODEL_SIZE
-            for (x in 0 until MODEL_SIZE) {
+            for (x in left..right) {
                 var keep = true
                 for (dy in -radius..radius) {
                     if (!horizontal[(y + dy) * MODEL_SIZE + x]) {
