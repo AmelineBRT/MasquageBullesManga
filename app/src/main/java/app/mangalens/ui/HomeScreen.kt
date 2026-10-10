@@ -801,7 +801,7 @@ private fun LectureCard(settings: AppSettings, repo: SettingsRepository) {
             LabeledSlider(
                 "Taille du texte",
                 settings.textScale,
-                0.8f..1.5f,
+                0.4f..1.5f,
                 { "${(it * 100).toInt()}%" },
             ) { scope.launch { repo.setTextScale(it) } }
             LabeledSlider(
