@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.8 — 2026-10-09
+- Added a one-tap OpenRouter free-AI setup using the `openrouter/free` router; its default is free-only, text-only translation (a key and provider quotas still apply).
+- Added an editable persistent glossary to protect names, titles and recurring phrases before any translator sees them; terms are restored exactly afterwards and changing the glossary invalidates old translation cache entries.
+- Expanded the burst-balloon outline sealing pass to recover more stylized speech bubbles whose broken borders let the detector's flood escape.
+- Kept the existing translation order and the existing fast first-pass flow unchanged.
+
 ## 0.12.4 — 2026-10-09
 - Added free, no-key LibreTranslate and Lingva providers.
 - Expanded fallback chain to try multiple free online engines before offline ML Kit.

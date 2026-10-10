@@ -26,6 +26,7 @@ class TranslationService(
     private val cache: TranslationCache,
     private val glossary: GlossaryStore? = null,
     private val cast: CastBook? = null,
+    private val manualGlossary: ManualGlossaryStore? = null,
 ) {
 
     private val google = GoogleFreeEngine()
@@ -68,7 +69,7 @@ class TranslationService(
             val resolved = arrayOfNulls<String>(items.size)
             val missingIdx = LinkedHashSet<Int>()
             for ((i, t) in items.withIndex()) {
-                val hit = cache.get(TranslationCache.key(engine.cacheNamespace, lang.name, t))
+                val hit = cache.get(TranslationCache.key(cacheNamespace(engine), lang.name, t))
                 if (hit != null) resolved[i] = hit else missingIdx.add(i)
             }
             // A sentence split across balloons only translates correctly as a
@@ -86,12 +87,19 @@ class TranslationService(
                 return Outcome(resolved.map { it ?: "" }, engine.label)
             }
             val missing = missingIdx.sorted().map { it to items[it] }
+            // Protect user-defined names/honorifics before any provider sees the
+            // text. Markers are restored after translation and never cached as output.
+            val protected = missing.map { (_, source) -> manualGlossary?.protect(source) }
+            val engineTexts = missing.mapIndexed { i, pair -> protected[i]?.text ?: pair.second }
+            fun restoreAt(index: Int, value: String): String =
+                protected.getOrNull(index)?.let { p -> manualGlossary?.restore(value, p) } ?: value
+            val cacheNs = cacheNamespace(engine)
             try {
                 val fresh = if (engine is LlmEngine && kinds != null) {
                     val partial = HashMap<Int, String>()
                     for (i in items.indices) resolved[i]?.let { partial[i] = it }
                     engine.translateWithKinds(
-                        missing.map { it.second },
+                        engineTexts,
                         missing.map { kinds.getOrNull(it.first) ?: BubbleKind.DIALOGUE },
                         missing.map { runs?.getOrNull(it.first) ?: -1 },
                         missing.map { parts?.getOrNull(it.first) ?: 0 },
@@ -99,21 +107,21 @@ class TranslationService(
                         onEntry = onProgress?.let { emit ->
                             { k, en ->
                                 missing.getOrNull(k)?.let { (idx, _) ->
-                                    partial[idx] = en
+                                    partial[idx] = restoreAt(k, en)
                                     emit(HashMap(partial))
                                 }
                             }
                         },
                     )
                 } else {
-                    engine.translate(missing.map { it.second }, lang)
+                    engine.translate(engineTexts, lang)
                 }
                 for ((k, pair) in missing.withIndex()) {
                     val (idx, src) = pair
-                    val translated = fresh.getOrNull(k).orEmpty()
+                    val translated = restoreAt(k, fresh.getOrNull(k).orEmpty())
                     if (translated.isNotBlank()) {
                         resolved[idx] = translated
-                        cache.put(TranslationCache.key(engine.cacheNamespace, lang.name, src), translated)
+                        cache.put(TranslationCache.key(cacheNs, lang.name, src), translated)
                     } else if (resolved[idx] == null) {
                         // A blank is "render nothing", and is never cached so
                         // the next pass retries. Only a genuine cache miss may
@@ -133,6 +141,9 @@ class TranslationService(
         }
         throw RuntimeException(lastError?.message ?: "translation failed", lastError)
     }
+
+    private fun cacheNamespace(engine: TranslationEngine): String =
+        engine.cacheNamespace + "|manual-glossary:" + (manualGlossary?.cacheVersion() ?: 0)
 
     /** True when every item is already cached under [ns] — no network needed. */
     fun fullyCached(ns: String, lang: SourceLang, items: List<String>): Boolean =

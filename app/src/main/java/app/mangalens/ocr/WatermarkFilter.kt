@@ -13,7 +13,7 @@ object WatermarkFilter {
     // v0.11.0 follow-up: OCR text is retained globally; only watermark candidates are removed.
 
     private val known = listOf(
-        "weconics", "wecomics", "webtoon", "scanlation", "scan", "raw",
+        "weconics", "wecomics", "we comics", "we-comics", "wecomlcs", "wecomics.com", "webtoon", "scanlation", "scan", "raw",
         "translated by", "translation by", "credits", "credit", "chapter by",
         "oui comics", "ouicomics", "oui-comics", "japanese to english",
         "japanese > english", "japanese → english", "jp to en",
@@ -45,7 +45,13 @@ object WatermarkFilter {
         // brand phrases must be discarded before balloon association, or a
         // false "balloon" could bleach the artwork beneath the watermark.
         val compact = text.filter { it.isLetterOrDigit() }
-        if (text.replace(Regex("\\s+"), " ").contains("oui comics") || compact.contains("ouicomics")) return true
+        val normalized = text.replace(Regex("[^\\p{L}\\p{N}]"), "")
+        // WeComics logo OCR can split or confuse the stylized letters
+        // (wecomlcs/weconics). Reject the brand line itself, not its rectangle,
+        // so overlapping dialogue OCR lines remain available for translation.
+        if (compact.contains("wecomics") || compact.contains("weconics") ||
+            compact.contains("wecomlcs") || normalized == "wecomicscom" ||
+            text.replace(Regex("\\s+"), " ").contains("oui comics") || compact.contains("ouicomics")) return true
         // Explicit bilingual translator stamps are noise even when printed over
         // a balloon or artwork; they must not become a giant, nonsensical card.
         val explicitStamp = listOf(
